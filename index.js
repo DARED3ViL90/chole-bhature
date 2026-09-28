@@ -2088,8 +2088,8 @@ function createAddon(config) {
             // We leave ~8s buffer for speed-testing after scraping completes.
             const isVercel = typeof process !== 'undefined' && Boolean(process.env.VERCEL);
             const PROVIDER_TIMEOUT_MS = isVercel 
-                ? (isEcoMode ? 8000 : 12000)   // Vercel: eco=8s, normal=12s (Stremio client times out around 15s)
-                : (isEcoMode ? 10000 : 14000); // Render/local: eco=10s, normal=14s
+                ? (isEcoMode ? 6000 : 9000)   // Vercel: eco=6s, normal=9s
+                : (isEcoMode ? 10000 : 20000); // Render/local: give scrapers 20 full seconds locally
 
             const tgScrapePromise = (async () => {
                 if (Boolean(config.enableTelegram) && (!config.disabled || (!config.disabled.includes('Telegram') && !config.disabled.includes('Telegram (PencariMovie)')))) {
@@ -2117,7 +2117,7 @@ function createAddon(config) {
             })();
 
             // Concurrency limiter to prevent network exhaustion on Android/mobile networks when running 40+ scrapers
-            const CONCURRENCY_LIMIT = 15;
+            const CONCURRENCY_LIMIT = 80;
             const providerTasks = allProviders.map((provider) => async () => {
                 try {
                     if (config.enableQuarantine !== false) {
@@ -2206,7 +2206,7 @@ function createAddon(config) {
             const isUnreleased = Boolean(type === 'movie' && targetYear && targetYear > currentYear);
 
             const sortedAndTaggedStreams = await sortAndTagStreams(allStreams, {
-                maxTestDuration: isVercel ? Math.max(100, 55000 - scrapeDurationMs) : null, // Force return before 60s Vercel limit
+                maxTestDuration: Math.max(100, 25000 - scrapeDurationMs), // Force return within 25 seconds end-to-end to maximize links
                 target: {
                     title: mediaMeta?.title || '',
                     originalTitle: mediaMeta?.originalTitle || '',
