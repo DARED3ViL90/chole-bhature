@@ -290,7 +290,7 @@ function resolveConfig(param) {
 async function prewarmProviders() {
     try {
         const reposToWarm = new Set([
-            'https://cdn.jsdelivr.net/gh/D3adlyRocket/All-in-One-Nuvio@main/manifest.json',
+            'https://raw.githubusercontent.com/D3adlyRocket/All-in-One-Nuvio/refs/heads/main/manifest.json',
             'https://cdn.jsdelivr.net/gh/yoruix/nuvio-providers@main/manifest.json',
             'https://codeberg.org/eclipsia/nuvio-plugin/raw/branch/main/manifest.json'
         ]);
@@ -1332,7 +1332,7 @@ app.post('/api/test-scraper', async (req, res) => {
         if (!providerName) {
             return res.status(400).json({ success: false, error: 'providerName is required' });
         }
-        const targetManifest = manifestUrl || 'https://cdn.jsdelivr.net/gh/D3adlyRocket/All-in-One-Nuvio@main/manifest.json';
+        const targetManifest = manifestUrl || 'https://raw.githubusercontent.com/D3adlyRocket/All-in-One-Nuvio/refs/heads/main/manifest.json';
         const overrides = {
             domain: domain || '',
             fallbackMirrors: Array.isArray(fallbackMirrors) 
@@ -1378,7 +1378,7 @@ app.get('/api/scraper-info', async (req, res) => {
     try {
         const { providerName, manifestUrl } = req.query || {};
         if (!providerName) return res.status(400).json({ success: false, error: 'providerName required' });
-        const targetManifest = manifestUrl || 'https://cdn.jsdelivr.net/gh/D3adlyRocket/All-in-One-Nuvio@main/manifest.json';
+        const targetManifest = manifestUrl || 'https://raw.githubusercontent.com/D3adlyRocket/All-in-One-Nuvio/refs/heads/main/manifest.json';
         const info = await providerLoader.getScraperInfo(targetManifest, providerName);
         res.json({ success: true, ...info });
     } catch (e) {
@@ -2053,7 +2053,7 @@ function createAddon(config) {
             
             if (manifestUrls.length === 0) {
                 manifestUrls = [
-                    'https://cdn.jsdelivr.net/gh/D3adlyRocket/All-in-One-Nuvio@main/manifest.json',
+                    'https://raw.githubusercontent.com/D3adlyRocket/All-in-One-Nuvio/refs/heads/main/manifest.json',
                     'https://cdn.jsdelivr.net/gh/yoruix/nuvio-providers@main/manifest.json',
                     'https://codeberg.org/eclipsia/nuvio-plugin/raw/branch/main/manifest.json'
                 ];
