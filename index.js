@@ -879,7 +879,8 @@ async function fetchOfficialVercelUsage(apiToken, forceFresh = false) {
         const daysRemaining = Math.max(1, Math.ceil((nextMonthDate - now) / (1000 * 60 * 60 * 24)));
         const endOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59)).toISOString();
 
-        // 3. Query usage for all available scopes. We prioritize Team -> Project -> Personal
+        // 3. Query usage for the best available scope across all 4 key metric types
+        const metricTypes = ['requests', 'bandwidth', 'serverless-function-execution', 'edge-function-execution'];
         const usageQueries = [];
         const addUsageQuery = (paramsObj) => {
             const qs = new URLSearchParams(paramsObj).toString();
@@ -891,14 +892,18 @@ async function fetchOfficialVercelUsage(apiToken, forceFresh = false) {
             );
         };
 
-        // Order matters! The first one that succeeds will be used.
+        // Determine the single highest available scope to prevent double-counting
+        let targetScope = {};
         if (validTeamIds.length > 0) {
-            addUsageQuery({ teamId: validTeamIds[0], from: startOfMonth, to: endNow });
+            targetScope = { teamId: validTeamIds[0] };
+        } else if (primaryProject) {
+            targetScope = { projectId: primaryProject.id };
         }
-        if (primaryProject) {
-            addUsageQuery({ projectId: primaryProject.id, from: startOfMonth, to: endNow });
+
+        // Query all 4 metric types for this single scope
+        for (const mt of metricTypes) {
+            addUsageQuery({ ...targetScope, type: mt, from: startOfMonth, to: endNow });
         }
-        addUsageQuery({ from: startOfMonth, to: endNow });
 
         const usageResults = await Promise.allSettled(usageQueries);
 
@@ -915,7 +920,6 @@ async function fetchOfficialVercelUsage(apiToken, forceFresh = false) {
                     totalBandwidthBytes += (item.bandwidth_outgoing_bytes || 0) + (item.bandwidth_incoming_bytes || 0);
                     totalGbHours += (item.function_execution_successful_gb_hours || 0) + (item.function_execution_error_gb_hours || 0) + (item.function_execution_timeout_gb_hours || 0);
                 }
-                break; // Prevent double-counting by breaking after the first successful scoped query!
             }
         }
 
