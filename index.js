@@ -879,10 +879,8 @@ async function fetchOfficialVercelUsage(apiToken, forceFresh = false) {
         const daysRemaining = Math.max(1, Math.ceil((nextMonthDate - now) / (1000 * 60 * 60 * 24)));
         const endOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59)).toISOString();
 
-        // 3. Query usage for all available scopes (Project, Personal, and Teams) across key metric types
-        const metricTypes = ['requests', 'bandwidth', 'serverless-function-execution', 'edge-function-execution'];
+        // 3. Query usage for all available scopes. We prioritize Team -> Project -> Personal
         const usageQueries = [];
-
         const addUsageQuery = (paramsObj) => {
             const qs = new URLSearchParams(paramsObj).toString();
             usageQueries.push(
@@ -893,34 +891,14 @@ async function fetchOfficialVercelUsage(apiToken, forceFresh = false) {
             );
         };
 
-        // A. Project-Scoped Queries (Essential for Project-Restricted Tokens!)
+        // Order matters! The first one that succeeds will be used.
+        if (validTeamIds.length > 0) {
+            addUsageQuery({ teamId: validTeamIds[0], from: startOfMonth, to: endNow });
+        }
         if (primaryProject) {
             addUsageQuery({ projectId: primaryProject.id, from: startOfMonth, to: endNow });
-            for (const mt of metricTypes) {
-                addUsageQuery({ projectId: primaryProject.id, type: mt, from: startOfMonth, to: endNow });
-            }
-            if (primaryProject.name && primaryProject.name !== primaryProject.id) {
-                addUsageQuery({ projectId: primaryProject.name, type: 'requests', from: startOfMonth, to: endNow });
-                addUsageQuery({ projectId: primaryProject.name, type: 'serverless-function-execution', from: startOfMonth, to: endNow });
-            }
         }
-
-        // B. Global Personal Scope
         addUsageQuery({ from: startOfMonth, to: endNow });
-        for (const mt of metricTypes) {
-            addUsageQuery({ type: mt, from: startOfMonth, to: endNow });
-        }
-
-        // C. Verified Team Scopes
-        for (const tId of validTeamIds) {
-            addUsageQuery({ teamId: tId, from: startOfMonth, to: endNow });
-            for (const mt of metricTypes) {
-                addUsageQuery({ teamId: tId, type: mt, from: startOfMonth, to: endNow });
-            }
-            if (primaryProject) {
-                addUsageQuery({ teamId: tId, projectId: primaryProject.id, from: startOfMonth, to: endNow });
-            }
-        }
 
         const usageResults = await Promise.allSettled(usageQueries);
 
@@ -937,6 +915,7 @@ async function fetchOfficialVercelUsage(apiToken, forceFresh = false) {
                     totalBandwidthBytes += (item.bandwidth_outgoing_bytes || 0) + (item.bandwidth_incoming_bytes || 0);
                     totalGbHours += (item.function_execution_successful_gb_hours || 0) + (item.function_execution_error_gb_hours || 0) + (item.function_execution_timeout_gb_hours || 0);
                 }
+                break; // Prevent double-counting by breaking after the first successful scoped query!
             }
         }
 
