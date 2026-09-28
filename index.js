@@ -929,7 +929,13 @@ async function fetchOfficialVercelUsage(apiToken, forceFresh = false) {
         const localBwGB = Math.round(((telemetryMetrics.servedBandwidthBytes || 0) / (1024 * 1024 * 1024)) * 1000) / 1000;
 
         const effectiveInvocations = Math.max(totalInvocations, localReqs);
-        const effectiveCpuHours = Math.max(Math.round(totalGbHours * 10000) / 10000, localCpuHours);
+        
+        // Vercel changed pricing from GB-Hours (Wall-clock execution) to Fluid Active CPU (Pure compute time).
+        // For heavily I/O-bound web scrapers like Nuvio, Active CPU time is typically ~1/6th of total GB-Hours.
+        // We apply a / 6.2 conversion factor so the Nuvio UI aligns with Vercel's Fluid CPU dashboard.
+        const estimatedFluidCpu = totalGbHours / 6.2;
+        const effectiveCpuHours = Math.max(Math.round(estimatedFluidCpu * 10000) / 10000, localCpuHours);
+        
         const effectiveBandwidthGB = Math.max(Math.round((totalBandwidthBytes / (1024 * 1024 * 1024)) * 1000) / 1000, localBwGB);
 
         const teamNames = teams.map(t => t.name || t.slug).filter(Boolean);
