@@ -2089,7 +2089,7 @@ function createAddon(config) {
             const isVercel = typeof process !== 'undefined' && Boolean(process.env.VERCEL);
             const PROVIDER_TIMEOUT_MS = isVercel 
                 ? (isEcoMode ? 6000 : 9000)   // Vercel: eco=6s, normal=9s
-                : (isEcoMode ? 10000 : 20000); // Render/local: give scrapers 20 full seconds locally
+                : (isEcoMode ? 8000 : 12000); // Render/local: eco=8s, normal=12s
 
             const tgScrapePromise = (async () => {
                 if (Boolean(config.enableTelegram) && (!config.disabled || (!config.disabled.includes('Telegram') && !config.disabled.includes('Telegram (PencariMovie)')))) {
@@ -2117,7 +2117,7 @@ function createAddon(config) {
             })();
 
             // Concurrency limiter to prevent network exhaustion on Android/mobile networks when running 40+ scrapers
-            const CONCURRENCY_LIMIT = 80;
+            const CONCURRENCY_LIMIT = 60;
             const providerTasks = allProviders.map((provider) => async () => {
                 try {
                     if (config.enableQuarantine !== false) {
