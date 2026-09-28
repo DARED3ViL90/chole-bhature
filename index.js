@@ -2089,7 +2089,7 @@ function createAddon(config) {
             const isVercel = typeof process !== 'undefined' && Boolean(process.env.VERCEL);
             const PROVIDER_TIMEOUT_MS = isVercel 
                 ? (isEcoMode ? 6000 : 9000)   // Vercel: eco=6s, normal=9s
-                : (isEcoMode ? 8000 : 12000); // Render/local: eco=8s, normal=12s
+                : (isEcoMode ? 10000 : 15000); // Render/local: eco=10s, normal=15s
 
             const tgScrapePromise = (async () => {
                 if (Boolean(config.enableTelegram) && (!config.disabled || (!config.disabled.includes('Telegram') && !config.disabled.includes('Telegram (PencariMovie)')))) {
@@ -2116,8 +2116,8 @@ function createAddon(config) {
                 }
             })();
 
-            // Concurrency limiter to prevent network exhaustion on Android/mobile networks when running 40+ scrapers
-            const CONCURRENCY_LIMIT = 60;
+            // Concurrency limiter to prevent network exhaustion. Vercel maxes out around 60 safely.
+            const CONCURRENCY_LIMIT = isVercel ? 60 : 250; // High concurrency for desktop/server to process all in a single batch
             const providerTasks = allProviders.map((provider) => async () => {
                 try {
                     if (config.enableQuarantine !== false) {
@@ -2206,7 +2206,7 @@ function createAddon(config) {
             const isUnreleased = Boolean(type === 'movie' && targetYear && targetYear > currentYear);
 
             const sortedAndTaggedStreams = await sortAndTagStreams(allStreams, {
-                maxTestDuration: Math.max(100, 25000 - scrapeDurationMs), // Force return within 25 seconds end-to-end to maximize links
+                maxTestDuration: Math.max(100, 35000 - scrapeDurationMs), // Force return within 35 seconds end-to-end
                 target: {
                     title: mediaMeta?.title || '',
                     originalTitle: mediaMeta?.originalTitle || '',
