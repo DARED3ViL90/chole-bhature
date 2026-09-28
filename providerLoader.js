@@ -250,7 +250,14 @@ class ProviderLoader {
                 const scraperTasks = (manifest.scrapers || [])
                     .filter(scraper => scraper && scraper.enabled)
                     .map((scraper) => async () => {
-                        const scriptUrl = `${baseUrl}/${scraper.filename}`;
+                        let scriptUrl = scraper.filename.startsWith('http') 
+                            ? scraper.filename 
+                            : `${baseUrl}/${scraper.filename}`;
+                        
+                        // cbcdn.githack.com is broken/unsupported for codeberg, rewrite to codeberg raw
+                        if (scriptUrl.includes('cbcdn.githack.com')) {
+                            scriptUrl = scriptUrl.replace('https://cbcdn.githack.com/', 'https://codeberg.org/');
+                        }
                         try {
                             let scriptCode = null;
                             if (this.scriptCache.has(scriptUrl)) {
@@ -518,7 +525,7 @@ class ProviderLoader {
         try {
             const manifestsToTry = [manifestUrl];
             const fallbackManifests = [
-                'https://raw.githubusercontent.com/yoru101/Nuvio-Providers/main/manifest.json',
+                'https://raw.githubusercontent.com/yoruix/nuvio-providers/refs/heads/main/manifest.json',
                 'https://raw.githubusercontent.com/phisher98/Nuvio-Providers/main/manifest.json',
                 'https://cdn.jsdelivr.net/gh/D3adlyRocket/All-in-One-Nuvio@main/manifest.json'
             ];
@@ -605,7 +612,7 @@ class ProviderLoader {
         try {
             const manifestsToTry = [manifestUrl];
             const fallbackManifests = [
-                'https://raw.githubusercontent.com/yoru101/Nuvio-Providers/main/manifest.json',
+                'https://raw.githubusercontent.com/yoruix/nuvio-providers/refs/heads/main/manifest.json',
                 'https://raw.githubusercontent.com/phisher98/Nuvio-Providers/main/manifest.json',
                 'https://cdn.jsdelivr.net/gh/D3adlyRocket/All-in-One-Nuvio@main/manifest.json'
             ];

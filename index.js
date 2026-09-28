@@ -291,8 +291,8 @@ async function prewarmProviders() {
     try {
         const reposToWarm = new Set([
             'https://raw.githubusercontent.com/D3adlyRocket/All-in-One-Nuvio/refs/heads/main/manifest.json',
-            'https://cdn.jsdelivr.net/gh/yoruix/nuvio-providers@main/manifest.json',
-            'https://codeberg.org/eclipsia/nuvio-plugin/raw/branch/main/manifest.json'
+            'https://raw.githubusercontent.com/yoruix/nuvio-providers/refs/heads/main/manifest.json',
+            'https://codeberg.org/api/v1/repos/eclipsia/nuvio-plugin/raw/manifest.json'
         ]);
         for (const [, cfg] of userConfigs.entries()) {
             if (cfg.repoUrl) reposToWarm.add(cfg.repoUrl);
@@ -2054,8 +2054,8 @@ function createAddon(config) {
             if (manifestUrls.length === 0) {
                 manifestUrls = [
                     'https://raw.githubusercontent.com/D3adlyRocket/All-in-One-Nuvio/refs/heads/main/manifest.json',
-                    'https://cdn.jsdelivr.net/gh/yoruix/nuvio-providers@main/manifest.json',
-                    'https://codeberg.org/eclipsia/nuvio-plugin/raw/branch/main/manifest.json'
+                    'https://raw.githubusercontent.com/yoruix/nuvio-providers/refs/heads/main/manifest.json',
+                    'https://codeberg.org/api/v1/repos/eclipsia/nuvio-plugin/raw/manifest.json'
                 ];
             }
 
