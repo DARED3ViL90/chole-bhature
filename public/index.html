@@ -8381,6 +8381,7 @@
             const selectedType = selectEl ? selectEl.value : 'all';
 
             let visible = 0;
+            let activeVisible = 0;
             cards.forEach(card => {
                 const text = card.textContent.toLowerCase();
 
@@ -8389,7 +8390,7 @@
                     if (selectedType === 'anime') matchesType = text.includes('anime') || text.includes('donghua');
                     else if (selectedType === 'indian') matchesType = text.match(/india|hindi|tamil|telugu|malayalam|kannada|english|dual|multi|hollywood|bollywood|hdhub/i) !== null;
                     else if (selectedType === 'regional') matchesType = text.includes('regional') || text.includes('multi') || text.includes('dub');
-                    else if (selectedType === 'latino') matchesType = text.includes('latino') || text.includes('spanish') || text.includes('es');
+                    else if (selectedType === 'latino') matchesType = text.match(/latino|spanish|español|espanol/i) !== null;
                     else matchesType = text.includes(selectedType);
                 }
 
@@ -8398,16 +8399,22 @@
                 if (matchesType && matchesSearch) {
                     card.style.display = 'flex';
                     visible++;
+                    const checkbox = card.querySelector('input[type="checkbox"]');
+                    if (checkbox && checkbox.checked) {
+                        activeVisible++;
+                    }
                 } else {
                     card.style.display = 'none';
                 }
             });
             const countBadge = document.getElementById('provider-count-badge');
-            if (countBadge && term) {
-                countBadge.innerText = `${visible} Found`;
-            } else if (countBadge) {
-                const activeCount = allProvidersData.filter(p => !settings.disabledProviders?.includes(p.name)).length;
-                countBadge.innerText = `${activeCount} / ${allProvidersData.length} Active`;
+            if (countBadge) {
+                if (term || selectedType !== 'all') {
+                    countBadge.innerText = `${activeVisible} / ${visible} Active`;
+                } else {
+                    const activeCount = allProvidersData.filter(p => !settings.disabledProviders?.includes(p.name)).length;
+                    countBadge.innerText = `${activeCount} / ${allProvidersData.length} Active`;
+                }
             }
         }
 
@@ -8894,6 +8901,11 @@
             }
             saveSettingsLocal();
             saveConfigurationToServer(false);
+            
+            // Update the badge when an individual toggle is clicked
+            const searchInput = document.getElementById('providerSearchInput');
+            if (searchInput) filterProvidersList(searchInput.value);
+            
             updateStatsBar();
             renderProviders();
         }
@@ -8910,7 +8922,7 @@
                     if (selectedType === 'anime') return desc.includes('anime') || desc.includes('donghua');
                     if (selectedType === 'indian') return desc.match(/india|hindi|tamil|telugu|malayalam|kannada|english|dual|multi|hollywood|bollywood|hdhub/i) !== null;
                     if (selectedType === 'regional') return desc.includes('regional') || desc.includes('multi') || desc.includes('dub');
-                    if (selectedType === 'latino') return desc.includes('latino') || desc.includes('spanish') || desc.includes('es');
+                    if (selectedType === 'latino') return desc.match(/latino|spanish|español|espanol/i) !== null;
                     return desc.includes(selectedType);
                 });
             }
