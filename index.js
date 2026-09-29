@@ -229,7 +229,7 @@ async function saveUserConfig(configId, config) {
     if (!configId || !config) return;
     userConfigs.set(configId, config);
     activeConfigsTracker.add(configId);
-    if (!param.startsWith('enc_') && param.length < 32 && (process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || process.env.UPSTASH_REDIS_KV_REST_API_URL) && (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || process.env.UPSTASH_REDIS_KV_REST_API_TOKEN)) {
+    if (typeof configId === 'string' && !configId.startsWith('enc_') && configId.length < 32 && (process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || process.env.UPSTASH_REDIS_KV_REST_API_URL) && (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || process.env.UPSTASH_REDIS_KV_REST_API_TOKEN)) {
         try {
             await kv.set(`cfg_${configId}`, config);
         } catch (err) {
