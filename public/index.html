@@ -596,6 +596,7 @@
         .pill-btn-dark-rocket:hover {
             background: rgba(255, 255, 255, 0.12);
             border: 1px solid rgba(255, 255, 255, 0.15);
+            transform: translateY(-2px) scale(1.02);
         }
 
         .install-light-content {
@@ -4102,7 +4103,7 @@
                             style="background: rgba(139, 92, 246, 0.15); border-color: rgba(139, 92, 246, 0.35); color: var(--text-purple);">0
                             Scrapers</span>
                     </div>
-                    <div style="display: flex; gap: 8px; align-items: center;">
+                    <div style="display: flex; gap: 8px; align-items: center;" id="bulk-actions-bar">
                         <style>
                             #bulkActionTypeSelect-custom-wrap { width: auto; font-size: 12px; }
                             #bulkActionTypeSelect-custom-wrap .custom-select-trigger { padding: 6px 14px; border-radius: 9999px; background-color: var(--bg-surface); min-width: 130px; height: 28px; }
@@ -6145,14 +6146,23 @@
             { id: 'German', code: 'DE', label: 'German', desc: 'German Audio' },
             { id: 'Italian', code: 'IT', label: 'Italian', desc: 'Italian Audio' },
             { id: 'Portuguese', code: 'PT', label: 'Portuguese', desc: 'Portuguese (PT/BR)' },
-            { id: 'Russian', code: 'RU', label: 'Russian', desc: 'Russian Audio' }
+            { id: 'Russian', code: 'RU', label: 'Russian', desc: 'Russian Audio' },
+            { id: 'Vietnamese', code: 'VI', label: 'Vietnamese', desc: 'Vietnamese Audio / Dub' },
+            { id: 'Chinese', code: 'ZH', label: 'Chinese', desc: 'Chinese / Mandarin Dub' },
+            { id: 'Thai', code: 'TH', label: 'Thai', desc: 'Thai Audio / Dub' },
+            { id: 'Indonesian', code: 'ID', label: 'Indonesian', desc: 'Indonesian Audio / Dub' },
+            { id: 'Marathi', code: 'MR', label: 'Marathi', desc: 'Marathi Audio' },
+            { id: 'Gujarati', code: 'GU', label: 'Gujarati', desc: 'Gujarati Audio' },
+            { id: 'Dutch', code: 'NL', label: 'Dutch', desc: 'Dutch Audio' },
+            { id: 'Polish', code: 'PL', label: 'Polish', desc: 'Polish Audio' }
         ];
 
         function renderLanguageChips() {
             const container = document.getElementById('lang-chips-container');
             const badge = document.getElementById('lang-count-badge');
             if (!container) return;
-            const preferred = settings.preferredLanguages || [];
+            const validIds = SUPPORTED_LANGUAGES.map(l => l.id);
+            const preferred = (settings.preferredLanguages || []).filter(id => validIds.includes(id));
             const count = preferred.length + (settings.prioritizeHindi && !preferred.includes('Hindi') ? 1 : 0);
 
             if (badge) {
@@ -6162,16 +6172,33 @@
                 badge.style.color = count > 0 ? 'var(--text-purple)' : 'var(--text-muted)';
             }
 
-            container.innerHTML = SUPPORTED_LANGUAGES.map(lang => {
-                const isSelected = preferred.includes(lang.id) || (lang.id === 'Hindi' && settings.prioritizeHindi);
-                return `
-                    <div class="lang-chip ${isSelected ? 'active' : ''}" onclick="toggleLanguage('${lang.id}')" title="${lang.desc}">
-                        <span class="lang-tag-pill">${lang.code}</span>
-                        <span>${lang.label}</span>
-                        <span class="lang-chip-check">${isSelected ? '✓' : ''}</span>
-                    </div>
-                `;
-            }).join('');
+            const groups = {
+                'Primary Audio': ['English', 'Dual-Audio'],
+                'Asian & Anime': ['Japanese', 'Korean', 'Chinese', 'Vietnamese', 'Thai', 'Indonesian'],
+                'European Dubs': ['Spanish', 'French', 'German', 'Italian', 'Portuguese', 'Russian', 'Dutch', 'Polish'],
+                'Indian Regional': ['Hindi', 'Tamil', 'Telugu', 'Malayalam', 'Kannada', 'Bengali', 'Marathi', 'Gujarati', 'Punjabi']
+            };
+
+            let html = '';
+            for (const [groupName, langIds] of Object.entries(groups)) {
+                html += `<div style="font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.8px; color: rgba(255,255,255,0.35); font-weight: 700; margin-top: 10px; margin-bottom: 2px; width: 100%; display: flex; align-items: center; gap: 8px;">
+                            ${groupName}
+                            <div style="flex-grow: 1; height: 1px; background: rgba(var(--overlay-base), 0.08);"></div>
+                         </div>`;
+                langIds.forEach(id => {
+                    const lang = SUPPORTED_LANGUAGES.find(l => l.id === id);
+                    if (!lang) return;
+                    const isSelected = preferred.includes(lang.id) || (lang.id === 'Hindi' && settings.prioritizeHindi);
+                    html += `
+                        <div class="lang-chip ${isSelected ? 'active' : ''}" onclick="toggleLanguage('${lang.id}')" title="${lang.desc}">
+                            <span class="lang-tag-pill">${lang.code}</span>
+                            <span>${lang.label}</span>
+                            <span class="lang-chip-check">${isSelected ? '✓' : ''}</span>
+                        </div>
+                    `;
+                });
+            }
+            container.innerHTML = html;
         }
 
         function toggleLanguage(langId) {
@@ -6625,9 +6652,18 @@
             if (saveBtn) saveBtn.classList.remove('unsaved');
         }
 
+        function toggleCatalogsVisibility() {
+            const enableCatalogsEl = document.getElementById('enableCatalogs');
+            const catalogsSubEl = document.getElementById('catalogs-sub-options');
+            if (enableCatalogsEl && catalogsSubEl) {
+                catalogsSubEl.style.display = enableCatalogsEl.checked ? 'block' : 'none';
+            }
+        }
+
         function onSettingChanged() {
             triggerHaptic('light');
             toggleDohProviderVisibility();
+            toggleCatalogsVisibility();
             toggleDebridApiKeyVisibility();
             saveSettingsLocal();
             saveConfigurationToServer(false);
@@ -8181,6 +8217,7 @@
 
             toggleDebridApiKeyVisibility();
             toggleDohProviderVisibility();
+            toggleCatalogsVisibility();
             initAllCustomSelects();
             syncCustomSelects();
 
@@ -9498,7 +9535,8 @@
 
         // ==================== INTERACTIVE PAGE-BY-PAGE SPOTLIGHT TOUR ====================
         const tourSteps = [
-            { tab: 'tab-home', target: '#hero-banner-card', icon: '🌶️', title: 'Overview & Health', desc: 'Welcome to Chole Bhature! This dashboard monitors your aggregators, stream latency, and live provider health in real-time.' },
+            { tab: 'tab-home', target: '.nav-brand-pill', icon: '🍲', title: 'Chole Bhature Addon', desc: 'Welcome to the ultimate Nuvio & Stremio Meta-Sorter! Your gateway to high-speed buffer-free streaming starts here.' },
+            { tab: 'tab-home', target: '#hero-banner-card', icon: '🌶️', title: 'Overview & Health', desc: 'This dashboard monitors your aggregators, stream latency, and live provider health in real-time.' },
             { tab: 'tab-settings', target: '#section-cloud-sync', icon: '☁️', title: 'Cloud Profile Sync', desc: 'Your configuration URL works seamlessly across all devices. No need to login—your custom link IS your account.' },
             { tab: 'tab-settings', target: '#section-debrid', icon: '💎', title: 'Debrid Speed Accelerator', desc: 'Enter your Real-Debrid, AllDebrid, TorBox, or Premiumize API key to unrestrict cached torrents into direct 10Gbps buffer-free streams.' },
             { tab: 'tab-settings', target: '#section-telegram', icon: '✈️', title: 'Telegram Cloud Streaming', desc: 'Utilize the PencariMovie Telegram bridge to instantly stream direct Telegram uploads of movies and shows without downloading.' },
@@ -9508,6 +9546,8 @@
             { tab: 'tab-settings', target: '#section-catalogs', icon: '🎬', title: 'TMDB & IMDB Catalogs', desc: 'Nuvio includes highly curated meta-catalogs like Netflix, Amazon Prime, and Disney+ directly inside Stremio via TMDB/IMDB integration.' },
             { tab: 'tab-settings', target: '#section-card-studio', icon: '🎨', title: 'Stremio Card Styling', desc: 'Customize how streams look in your player! Toggle modern minimalist clean cards or keep the legacy detailed view with file sizes and badges.' },
             { tab: 'tab-sources', target: '#section-add-repo', icon: '📦', title: 'Add Provider Repositories', desc: 'Paste a community repository manifest URL to instantly add dozens of new scraper configurations created by other users.' },
+            { tab: 'tab-sources', target: '#section-installed-repos', icon: '📚', title: 'Installed Repositories', desc: 'View, manage, and remove your currently installed third-party scraper repositories here. Repos are automatically synced from the cloud.' },
+            { tab: 'tab-sources', target: '#bulk-actions-bar', icon: '⚡', title: 'Bulk Action Scrapers', desc: 'Quickly enable or disable entire categories of scrapers (like Anime, Regional, or Latino) all at once using these bulk action buttons.' },
             { tab: 'tab-sources', target: '#section-scrapers', icon: '⚙️', title: 'Manage Individual Scrapers', desc: 'Toggle specific scrapers (like VegaMovies, MoviesDrive, etc) on or off depending on your personal catalog preferences.' },
             { tab: 'tab-iptv', target: '#section-iptv-master', icon: '📺', title: 'Live TV & IPTV', desc: 'Paste a custom M3U playlist link or login with Xtream Codes to watch thousands of Live TV channels directly inside Stremio.' },
             { tab: 'tab-analytics', target: '#section-analytics-card', icon: '📈', title: 'Live Diagnostics', desc: 'Watch the background workers in real-time as they scrape providers. You can see individual provider latencies and isolate failing sites.' },

@@ -472,6 +472,12 @@ function getAudioScore(stream, preferredLanguages = [], prioritizeHindi = false)
                 regexPattern = `\\b(japanese|jap)\\b`;
             } else if (pref === 'english') {
                 regexPattern = `\\b(english|eng|en)\\b`;
+            } else if (pref === 'vietnamese') {
+                regexPattern = `\\b(vietnamese|viet|vie|vn)\\b`;
+            } else if (pref === 'chinese') {
+                regexPattern = `\\b(chinese|mandarin|zh|chn)\\b`;
+            } else if (pref === 'indonesian') {
+                regexPattern = `\\b(indonesian|indo|id)\\b`;
             }
 
             const matched = langs.includes(pref) || new RegExp(regexPattern, 'i').test(text);
