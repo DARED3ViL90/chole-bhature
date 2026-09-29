@@ -2973,6 +2973,16 @@
                 display: none;
             }
         }
+    
+        /* Hide Ugly Google Translate Completely */
+        #google_translate_element { display: none !important; }
+        .goog-te-banner-frame { display: none !important; }
+        .skiptranslate { display: none !important; }
+        .VIpgJd-ZVi9od-ORHb-OEVmcd { display: none !important; }
+        .VIpgJd-ZVi9od-aZ2wEe-wOHMyf { display: none !important; }
+        body { top: 0 !important; margin-top: 0 !important; position: static !important; }
+        html { top: 0 !important; margin-top: 0 !important; position: static !important; }
+
     </style>
 </head>
 
@@ -3075,6 +3085,7 @@
                     </span>
                 </button>
 
+                
                 <button class="pill-btn pill-btn-icon-only" onclick="toggleTheme()" title="Toggle Theme" id="theme-btn"
                     style="display: inline-flex; align-items: center; justify-content: center;">
                     <span id="theme-icon"
@@ -5518,6 +5529,10 @@
                 <span class="footer-dot">•</span>
                 <a href="https://github.com/SA7ANI/chole-bhature/blob/main/LICENSE" target="_blank"
                     rel="noopener noreferrer">AGPL-3.0 License</a>
+                <span class="footer-dot">•</span>
+                <button type="button" class="footer-tour-btn" id="tour-lang-btn" onclick="showElegantLanguageSelector()" title="Change UI Language">
+                    <span>🌐</span> Language
+                </button>
             </div>
         </footer>
 
@@ -9533,6 +9548,7 @@
         // ==================== INTERACTIVE PAGE-BY-PAGE SPOTLIGHT TOUR ====================
         const tourSteps = [
             { tab: 'tab-home', target: '.nav-brand-pill', icon: '🍲', title: 'Chole Bhature Addon', desc: 'Welcome to the ultimate Nuvio & Stremio Meta-Sorter! Your gateway to high-speed buffer-free streaming starts here.' },
+            { tab: 'tab-home', target: '#tour-lang-btn', icon: '🌐', title: 'Native UI Translations', desc: 'Not an English speaker? Click the Language button in the footer at any time to instantly translate this entire dashboard into your native language.' },
             { tab: 'tab-home', target: '#hero-banner-card', icon: '🌶️', title: 'Overview & Health', desc: 'This dashboard monitors your aggregators, stream latency, and live provider health in real-time.' },
             { tab: 'tab-settings', target: '#section-cloud-sync', icon: '☁️', title: 'Cloud Profile Sync', desc: 'Your configuration URL works seamlessly across all devices. No need to login—your custom link IS your account.' },
             { tab: 'tab-settings', target: '#section-debrid', icon: '💎', title: 'Debrid Speed Accelerator', desc: 'Enter your Real-Debrid, AllDebrid, TorBox, or Premiumize API key to unrestrict cached torrents into direct 10Gbps buffer-free streams.' },
@@ -10753,6 +10769,85 @@
         }
     </script>
 
+
+    <!-- Google Translate Floating Widget -->
+    <div id="google_translate_element" style="position: fixed; bottom: 80px; right: 20px; z-index: 99999; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.5);"></div>
+    <script type="text/javascript">
+        function googleTranslateElementInit() {
+            new google.translate.TranslateElement({
+                pageLanguage: 'en', 
+                layout: google.translate.TranslateElement.InlineLayout.SIMPLE
+            }, 'google_translate_element');
+        }
+    </script>
+    <script type="text/javascript" src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
+    <script type="text/javascript">
+        function showElegantLanguageSelector() {
+            triggerHaptic('medium');
+            const langs = [
+                { code: 'en', name: 'English', emoji: '🇬🇧' },
+                { code: 'es', name: 'Español', emoji: '🇪🇸' },
+                { code: 'fr', name: 'Français', emoji: '🇫🇷' },
+                { code: 'pt', name: 'Português', emoji: '🇵🇹' },
+                { code: 'hi', name: 'हिंदी', emoji: '🇮🇳' },
+                { code: 'zh-CN', name: '中文', emoji: '🇨🇳' },
+                { code: 'ar', name: 'العربية', emoji: '🇸🇦' },
+                { code: 'ru', name: 'Русский', emoji: '🇷🇺' },
+                { code: 'ja', name: '日本語', emoji: '🇯🇵' },
+                { code: 'de', name: 'Deutsch', emoji: '🇩🇪' },
+                { code: 'it', name: 'Italiano', emoji: '🇮🇹' },
+                { code: 'ko', name: '한국어', emoji: '🇰🇷' },
+                { code: 'tr', name: 'Türkçe', emoji: '🇹🇷' },
+                { code: 'pl', name: 'Polski', emoji: '🇵🇱' },
+                { code: 'id', name: 'Bahasa Indonesia', emoji: '🇮🇩' },
+                { code: 'vi', name: 'Tiếng Việt', emoji: '🇻🇳' },
+                { code: 'nl', name: 'Nederlands', emoji: '🇳🇱' },
+                { code: 'th', name: 'ไทย', emoji: '🇹🇭' },
+                { code: 'el', name: 'Ελληνικά', emoji: '🇬🇷' },
+                { code: 'cs', name: 'Čeština', emoji: '🇨🇿' },
+                { code: 'sv', name: 'Svenska', emoji: '🇸🇪' },
+                { code: 'ro', name: 'Română', emoji: '🇷🇴' },
+                { code: 'hu', name: 'Magyar', emoji: '🇭🇺' },
+                { code: 'fi', name: 'Suomi', emoji: '🇫🇮' },
+                { code: 'da', name: 'Dansk', emoji: '🇩🇰' }
+            ];
+            
+            let html = '<div id="elegant-lang-modal-grid" style="display:flex; flex-wrap:wrap; gap:8px; justify-content:center; padding: 10px 0; max-height: 50vh; overflow-y: auto; overflow-x: hidden; scrollbar-width: none;">';
+            langs.forEach(l => {
+                html += `<div class="lang-chip" onclick="applyElegantTranslation('${l.code}')" style="cursor:pointer; padding:8px 12px; background:rgba(255,255,255,0.05); border-radius:8px; border:1px solid rgba(255,255,255,0.1); display:flex; align-items:center; gap:6px; flex-grow:1; justify-content:center; min-width:30%;">
+                    <span style="font-size:16px;">${l.emoji}</span>
+                    <span style="font-size:13px; font-weight:600;">${l.name}</span>
+                </div>`;
+            });
+            html += '</div>';
+
+            const modalHtml = `
+                <style>#elegant-lang-modal-grid::-webkit-scrollbar { display: none; }</style>
+                <div id="elegant-lang-modal" style="position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.8); z-index:999999; display:flex; align-items:center; justify-content:center; backdrop-filter:blur(8px); opacity:0; transition:opacity 0.2s;">
+                    <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:16px; padding:24px; max-width:400px; width:90%; box-shadow:0 10px 40px rgba(0,0,0,0.5); transform:scale(0.95); transition:transform 0.2s;">
+                        <h3 style="margin-top:0; margin-bottom:8px; text-align:center; font-size:18px;">Select Language</h3>
+                        <p style="text-align:center; font-size:13px; color:var(--text-muted); margin-bottom:20px;">Choose a language to instantly translate the UI.</p>
+                        ${html}
+                        <button class="pill-btn" style="width:100%; margin-top:20px; justify-content:center;" onclick="document.getElementById('elegant-lang-modal').remove()">Close</button>
+                    </div>
+                </div>
+            `;
+            
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+            requestAnimationFrame(() => {
+                const m = document.getElementById('elegant-lang-modal');
+                m.style.opacity = '1';
+                m.children[0].style.transform = 'scale(1)';
+            });
+        }
+
+        function applyElegantTranslation(langCode) {
+            document.cookie = `googtrans=/en/${langCode}; path=/; domain=${window.location.hostname}`;
+            document.cookie = `googtrans=/en/${langCode}; path=/`;
+            window.location.reload();
+        }
+
+</script>
 </body>
 
 </html>
