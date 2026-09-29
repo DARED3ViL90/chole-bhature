@@ -1,4 +1,6 @@
 const express = require('express');
+const { createClient } = require('@vercel/kv');
+const kv = createClient({ url: process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || '', token: process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '' });
 const { addonBuilder, serveHTTP } = require('stremio-addon-sdk');
 const path = require('path');
 const providerLoader = require('./providerLoader');
@@ -173,8 +175,17 @@ const CONFIGS_FILE = process.env.VERCEL
     : path.join(__dirname, 'user_configs.json');
 const userConfigs = new Map();
 
-function saveUserConfig(configId, configData) {
-    userConfigs.set(configId, configData);
+async function saveUserConfig(configId, config) {
+    if (!configId || !config) return;
+    userConfigs.set(configId, config);
+    activeConfigsTracker.add(configId);
+    if ((process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || process.env.UPSTASH_REDIS_KV_REST_API_URL) && (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || process.env.UPSTASH_REDIS_KV_REST_API_TOKEN)) {
+        try {
+            await kv.set(`cfg_${configId}`, config);
+        } catch (err) {
+            console.error('[KV Error] saving config:', err);
+        }
+    }
 }
 
 // ============================================================
@@ -223,18 +234,29 @@ function encodeConfigParam(cfg) {
 // Multi-Device Stateless & Persistent Configuration Resolver
 const activeConfigsTracker = new Set();
 
-function resolveConfig(param) {
+async function resolveConfig(param) {
     if (!param) return null;
     if (typeof param !== 'string') return null;
     param = param.replace(/\/configure\/?$/, '').replace(/\.json$/, '').trim();
     if (!param) return null;
 
-    // 1. Priority 1: Check in-memory & persistent userConfigs map FIRST
-    // This ensures any changes saved via the Web UI immediately update the catalog in Nuvio/Stremio
     const stored = userConfigs.get(param);
     if (stored) {
         activeConfigsTracker.add(param);
         return stored;
+    }
+    
+    if ((process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || process.env.UPSTASH_REDIS_KV_REST_API_URL) && (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || process.env.UPSTASH_REDIS_KV_REST_API_TOKEN)) {
+        try {
+            const kvStored = await kv.get(`cfg_${param}`);
+            if (kvStored) {
+                userConfigs.set(param, kvStored);
+                activeConfigsTracker.add(param);
+                return kvStored;
+            }
+        } catch (err) {
+            console.error('[KV Error] resolving config:', err);
+        }
     }
 
     // 1.5. Try Encrypted Payload
@@ -406,14 +428,14 @@ function isDeepEqual(obj1, obj2) {
     return true;
 }
 
-app.post('/api/config/save', (req, res) => {
+app.post('/api/config/save', async (req, res) => {
     try {
         let { configId, token, config, oldToken } = req.body;
         
         // Restore any redacted secrets from the old configuration
         let oldConfig = null;
         if (token || oldToken || configId) {
-            oldConfig = resolveConfig(token || oldToken || configId);
+            oldConfig = await resolveConfig(token || oldToken || configId);
         }
         
         if (oldConfig) {
@@ -425,32 +447,43 @@ app.post('/api/config/save', (req, res) => {
         }
 
         // If the old token still decrypts to the exact same config, reuse it to keep install links stable
-        let reusedOldToken = false;
+                let reusedOldToken = false;
         const incomingToken = oldToken || configId || token;
+        const isKVEnabled = Boolean((process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || process.env.UPSTASH_REDIS_KV_REST_API_URL) && (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || process.env.UPSTASH_REDIS_KV_REST_API_TOKEN));
+        
+        let existingDecrypted = null;
         if (incomingToken) {
-            const existingDecrypted = decryptConfigPayload(incomingToken);
-            if (existingDecrypted && isDeepEqual(existingDecrypted, config)) {
+            if (isKVEnabled && !incomingToken.startsWith('enc_') && incomingToken.length < 32) {
                 configId = incomingToken;
                 reusedOldToken = true;
+            } else {
+                existingDecrypted = decryptConfigPayload(incomingToken);
+                if (existingDecrypted && isDeepEqual(existingDecrypted, config)) {
+                    configId = incomingToken;
+                    reusedOldToken = true;
+                }
             }
         }
         
         if (!reusedOldToken) {
-            // Config actually changed — generate a new encrypted token
-            const encryptedToken = encryptConfigPayload(config);
-            if (!encryptedToken) {
-                return res.status(500).json({ success: false, error: 'Failed to encrypt configuration' });
+            if (isKVEnabled) {
+                configId = crypto.randomBytes(4).toString('hex');
+            } else {
+                const encryptedToken = encryptConfigPayload(config);
+                if (!encryptedToken) {
+                    return res.status(500).json({ success: false, error: 'Failed to encrypt configuration' });
+                }
+                configId = encryptedToken;
             }
-            configId = encryptedToken;
         }
-        saveUserConfig(configId, config);
+        await saveUserConfig(configId, config);
         
         // Map the frontend's original temporary token in-memory to prevent breaking the immediate save cycle
         if (token && token !== configId) {
-            saveUserConfig(token, config);
+            await await saveUserConfig(token, config);
         }
         if (oldToken && oldToken !== configId && oldToken !== token) {
-            saveUserConfig(oldToken, config);
+            await await saveUserConfig(oldToken, config);
         }
         
         // Invalidate stream cache for this configuration
@@ -463,7 +496,8 @@ app.post('/api/config/save', (req, res) => {
         const maskedId = configId.length > 20 ? configId.substring(0, 8) + '...' + configId.substring(configId.length - 8) : '***';
         console.log(`[Config] Configuration saved & synced for configId: ${maskedId}`);
         // Never echo secrets back - only return the safe masked copy
-        res.json({ success: true, configId, config: redactSecrets(config) });
+        const debugData = (!reusedOldToken && incomingToken) ? { incomingToken, existingDecrypted, newConfig: config, isEqual: existingDecrypted ? isDeepEqual(existingDecrypted, config) : false } : undefined;
+        res.json({ success: true, configId, config: redactSecrets(config), debug: debugData });
     } catch (err) {
         console.error('[Config Error]', err);
         res.status(500).json({ success: false, error: err.message });
@@ -472,7 +506,7 @@ app.post('/api/config/save', (req, res) => {
 
 // API to get latest saved configuration on this instance
 // SECURITY: Requires a valid configId — no unauthenticated dump of last config.
-app.get('/api/config/latest', (req, res) => {
+app.get('/api/config/latest', async (req, res) => {
     const requestedId = req.query.id || req.query.configId || req.query.token;
     if (!requestedId) {
         // No ID provided — refuse to dump any config
@@ -487,23 +521,23 @@ app.get('/api/config/latest', (req, res) => {
 
 // API to get configuration by query param
 // SECURITY: configId required — ownership is proven by knowing the ID.
-app.all('/api/config', (req, res) => {
+app.all('/api/config', async (req, res) => {
     const targetId = req.query.id || req.query.configId || req.query.token;
     if (!targetId) {
         return res.status(400).json({ success: false, error: 'configId required' });
     }
-    const config = resolveConfig(targetId) || null;
+    const config = (await resolveConfig(targetId)) || null;
     return res.json({ success: Boolean(config), configId: targetId, config: redactSecrets(config) });
 });
 
 // API to get configuration by configId or token
 // SECURITY: Whoever knows the configId IS the owner — return full config.
-app.get('/api/config/:configId', (req, res) => {
+app.get('/api/config/:configId', async (req, res) => {
     let rawId = req.params.configId;
     if (rawId) {
         rawId = rawId.replace(/\/configure\/?$/, '').replace(/\.json$/, '').trim();
     }
-    const config = resolveConfig(rawId) || null;
+    const config = (await resolveConfig(rawId)) || null;
     res.json({ success: Boolean(config), configId: rawId, config: redactSecrets(config) });
 });
 
@@ -2758,7 +2792,7 @@ app.use('/api/telegram', telegramRouter);
 app.use('/proxy/stream', streamProxyRouter);
 
 // Dynamic configuration endpoints for Stremio Router (With Vercel Edge CDN Headers)
-app.use('/c/:configId', (req, res, next) => {
+app.use('/c/:configId', async (req, res, next) => {
     // Only intercept Stremio API routes
     if (req.path === '/manifest.json' || (req.path.startsWith('/stream/') && !req.path.startsWith('/stream/telegram')) || req.path.startsWith('/catalog/') || req.path.startsWith('/meta/')) {
         try {
@@ -2769,7 +2803,7 @@ app.use('/c/:configId', (req, res, next) => {
             }
 
             const { configId } = req.params;
-            let config = resolveConfig(configId);
+            let config = await resolveConfig(configId);
             if (!config) {
                 config = { repoUrl: 'https://raw.githubusercontent.com/D3adlyRocket/All-in-One-Nuvio/refs/heads/main/manifest.json' };
             }
@@ -2790,7 +2824,7 @@ app.use('/c/:configId', (req, res, next) => {
     next();
 });
 
-app.use('/:configJSON', (req, res, next) => {
+app.use('/:configJSON', async (req, res, next) => {
     // Only intercept Stremio API routes
     if (req.path === '/manifest.json' || (req.path.startsWith('/stream/') && !req.path.startsWith('/stream/telegram')) || req.path.startsWith('/catalog/') || req.path.startsWith('/meta/')) {
         try {
@@ -2800,7 +2834,7 @@ app.use('/:configJSON', (req, res, next) => {
                 res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
             }
 
-            let config = resolveConfig(req.params.configJSON);
+            let config = await resolveConfig(req.params.configJSON);
             if (!config) {
                 config = { repoUrl: 'https://raw.githubusercontent.com/D3adlyRocket/All-in-One-Nuvio/refs/heads/main/manifest.json' };
             }
@@ -2864,4 +2898,5 @@ if (!process.env.VERCEL) {
 
 // Export the app for Vercel Serverless Functions
 module.exports = app;
+
 

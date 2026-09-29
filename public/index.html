@@ -6838,6 +6838,7 @@
                     body: JSON.stringify({ configId: targetId, token: activeToken, config: configObj, oldToken: oldToken })
                 });
                 const data = await res.json();
+                if (data.debug) console.error('!!! VERCEL DEBUG !!!', data.debug);
                 if (data.success) {
                     if (data.configId) {
                         // Only update URL if configId actually changed (keeps install link stable)
@@ -7721,6 +7722,7 @@
                     body: JSON.stringify({ key: cleanKey })
                 });
                 const data = await res.json();
+                if (data.debug) console.error('!!! VERCEL DEBUG !!!', data.debug);
                 if (data.success) {
                     sessionStorage.setItem('cb_admin_key', cleanKey);
 
@@ -7790,6 +7792,7 @@
                     body: JSON.stringify({ key })
                 });
                 const data = await res.json();
+                if (data.debug) console.error('!!! VERCEL DEBUG !!!', data.debug);
                 if (data.success) {
                     sessionStorage.setItem('cb_admin_key', key);
                     if (errEl) errEl.style.display = 'none';
@@ -8006,6 +8009,7 @@
                     headers: { 'Content-Type': 'application/json', 'x-admin-key': key }
                 });
                 const data = await res.json();
+                if (data.debug) console.error('!!! VERCEL DEBUG !!!', data.debug);
                 if (data.success) {
                     showToast(`✨ <b>Cache Purged:</b> Cleared ${data.cleared} cached stream sets.`);
                     fetchAdminStats();
@@ -8026,6 +8030,7 @@
                     headers: { 'Content-Type': 'application/json', 'x-admin-key': key }
                 });
                 const data = await res.json();
+                if (data.debug) console.error('!!! VERCEL DEBUG !!!', data.debug);
                 if (data.success) {
                     showToast(`✨ <b>Strikes Reset:</b> Unquarantined all providers.`);
                     fetchAdminStats();
@@ -10751,3 +10756,4 @@
 </body>
 
 </html>
+
