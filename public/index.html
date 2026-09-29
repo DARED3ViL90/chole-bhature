@@ -1350,6 +1350,13 @@
             color: #ffffff;
             border-color: rgba(139, 92, 246, 0.55);
         }
+        body.theme-light .lang-chip.active {
+            color: var(--text-purple);
+        }
+        body.theme-light .lang-chip.active .lang-tag-pill {
+            color: var(--text-purple);
+        }
+
 
         @keyframes popIn {
             0% {
@@ -6182,7 +6189,7 @@
 
             let html = '';
             for (const [groupName, langIds] of Object.entries(groups)) {
-                html += `<div style="font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.8px; color: rgba(255,255,255,0.35); font-weight: 700; margin-top: 10px; margin-bottom: 2px; width: 100%; display: flex; align-items: center; gap: 8px;">
+                html += `<div style="font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-muted); font-weight: 700; margin-top: 10px; margin-bottom: 2px; width: 100%; display: flex; align-items: center; gap: 8px;">
                             ${groupName}
                             <div style="flex-grow: 1; height: 1px; background: rgba(var(--overlay-base), 0.08);"></div>
                          </div>`;
@@ -10814,7 +10821,7 @@
             
             let html = '<div id="elegant-lang-modal-grid" style="display:flex; flex-wrap:wrap; gap:8px; justify-content:center; padding: 10px 0; max-height: 50vh; overflow-y: auto; overflow-x: hidden; scrollbar-width: none;">';
             langs.forEach(l => {
-                html += `<div class="lang-chip" onclick="applyElegantTranslation('${l.code}')" style="cursor:pointer; padding:8px 12px; background:rgba(255,255,255,0.05); border-radius:8px; border:1px solid rgba(255,255,255,0.1); display:flex; align-items:center; gap:6px; flex-grow:1; justify-content:center; min-width:30%;">
+                html += `<div class="ui-translate-chip" onclick="applyElegantTranslation('${l.code}')" >
                     <span style="font-size:16px;">${l.emoji}</span>
                     <span style="font-size:13px; font-weight:600;">${l.name}</span>
                 </div>`;
@@ -10823,7 +10830,41 @@
 
             const modalHtml = `
                 <style>#elegant-lang-modal-grid::-webkit-scrollbar { display: none; }</style>
-                <div id="elegant-lang-modal" style="position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.8); z-index:999999; display:flex; align-items:center; justify-content:center; backdrop-filter:blur(8px); opacity:0; transition:opacity 0.2s;">
+                <style>
+    #elegant-lang-modal-grid::-webkit-scrollbar { display: none; }
+    
+    #elegant-lang-modal {
+        position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.8);
+        z-index: 999999; display: flex; align-items: center; justify-content: center;
+        backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+        opacity: 0; transition: opacity 0.2s;
+    }
+    body.theme-light #elegant-lang-modal {
+        background: rgba(255,255,255,0.6);
+    }
+    
+    .ui-translate-chip {
+        cursor: pointer; padding: 8px 12px;
+        background: rgba(255,255,255,0.05);
+        border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);
+        display: flex; align-items: center; gap: 6px; flex-grow: 1; justify-content: center; min-width: 30%;
+        transition: all 0.2s ease;
+        color: var(--text-primary);
+    }
+    .ui-translate-chip:hover {
+        background: rgba(255,255,255,0.1);
+    }
+    body.theme-light .ui-translate-chip {
+        background: rgba(0,0,0,0.04);
+        border-color: rgba(0,0,0,0.1);
+        color: #0f172a;
+    }
+    body.theme-light .ui-translate-chip:hover {
+        background: rgba(0,0,0,0.08);
+    }
+</style>
+<div id="elegant-lang-modal" >
                     <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:16px; padding:24px; max-width:400px; width:90%; box-shadow:0 10px 40px rgba(0,0,0,0.5); transform:scale(0.95); transition:transform 0.2s;">
                         <h3 style="margin-top:0; margin-bottom:8px; text-align:center; font-size:18px;">Select Language</h3>
                         <p style="text-align:center; font-size:13px; color:var(--text-muted); margin-bottom:20px;">Choose a language to instantly translate the UI.</p>
