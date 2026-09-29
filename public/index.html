@@ -9029,11 +9029,13 @@
                 protocol = 'https://';
                 host = 'nuvio.vercel.app';
             }
-            const configObj = buildConfigObject();
-            const token = encodeConfigToken(configObj);
-            configId = token;
-            localStorage.setItem('cb_config_id', token);
-            showSyncBadge(`ID: ${token}`);
+            
+            const isBase64Token = (id) => typeof id === 'string' && id.length > 32 && !id.startsWith('enc_');
+            let token = configId;
+            if (!token || isBase64Token(token)) {
+                const configObj = buildConfigObject();
+                token = encodeConfigToken(configObj);
+            }
 
             const manifestPath = `/c/${token}/manifest.json`;
             return {
@@ -9054,8 +9056,8 @@
             isInstalled = true;
             localStorage.setItem('cb_is_installed', 'true');
 
-            const urls = buildAddonUrls();
             await saveConfigurationToServer(false);
+            const urls = buildAddonUrls();
             showFallback(urls.httpUrl);
             window.location.href = urls.stremioUrl;
         }
