@@ -110,6 +110,7 @@ function loadTelemetryMetrics() {
 function saveTelemetryMetrics() {
     try {
         fs.writeFileSync(TELEMETRY_FILE, JSON.stringify(telemetryMetrics));
+        if (typeof syncGlobalStateToKV === 'function') syncGlobalStateToKV();
     } catch (e) {}
 }
 loadTelemetryMetrics();
@@ -159,7 +160,7 @@ async function syncGlobalStateToKV() {
 if (isKVEnabledGlobal) {
     loadGlobalStateFromKV();
     // Auto-sync global state to KV every 3 minutes
-    setInterval(syncGlobalStateToKV, 3 * 60 * 1000);
+    // setInterval removed due to serverless freezing
 }
 
 
@@ -228,7 +229,7 @@ async function saveUserConfig(configId, config) {
     if (!configId || !config) return;
     userConfigs.set(configId, config);
     activeConfigsTracker.add(configId);
-    if ((process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || process.env.UPSTASH_REDIS_KV_REST_API_URL) && (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || process.env.UPSTASH_REDIS_KV_REST_API_TOKEN)) {
+    if (!param.startsWith('enc_') && param.length < 32 && (process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || process.env.UPSTASH_REDIS_KV_REST_API_URL) && (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || process.env.UPSTASH_REDIS_KV_REST_API_TOKEN)) {
         try {
             await kv.set(`cfg_${configId}`, config);
         } catch (err) {
