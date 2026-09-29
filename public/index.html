@@ -6825,7 +6825,7 @@
             saveSettingsLocal();
             const configObj = buildConfigObject();
             const activeToken = encodeConfigToken(configObj);
-            const isBase64Token = (id) => typeof id === 'string' && id.length > 32;
+            const isBase64Token = (id) => typeof id === 'string' && id.length > 32 && !id.startsWith('enc_');
             const targetId = (!configId || isBase64Token(configId)) ? activeToken : configId;
             const oldToken = configId; // Preserve original URL config ID to update it on the server
             configId = targetId;
