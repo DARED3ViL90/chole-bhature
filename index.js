@@ -1879,14 +1879,16 @@ function createAddon(config) {
 
         // 4. Movies & Series
         if (config.catalogTrending !== false) {
-            const movieSeriesGenres = ['Action', 'Comedy', 'Drama', 'Sci-Fi', 'Horror', 'Thriller', 'Romance', 'Crime', 'Adventure', 'Animation', 'Fantasy', 'Mystery'];
+            const movieGenres = ['Action', 'Adventure', 'Animation', 'Comedy', 'Crime', 'Documentary', 'Drama', 'Family', 'Fantasy', 'History', 'Horror', 'Music', 'Mystery', 'Romance', 'Science Fiction', 'Thriller', 'War', 'Western'];
+            const seriesGenres = ['Action & Adventure', 'Animation', 'Comedy', 'Crime', 'Documentary', 'Drama', 'Family', 'Kids', 'Mystery', 'News', 'Reality', 'Sci-Fi & Fantasy', 'Soap', 'Talk', 'War & Politics', 'Western'];
+            
             enabledCatalogs.push({
                 type: 'movie',
                 id: 'cb_movies_series',
                 name: 'Movies & Series',
-                genres: movieSeriesGenres,
+                genres: movieGenres,
                 extra: [
-                    { name: 'genre', options: movieSeriesGenres, isRequired: false },
+                    { name: 'genre', options: movieGenres, isRequired: false },
                     { name: 'skip', isRequired: false }
                 ],
                 extraSupported: ['genre', 'skip']
@@ -1895,9 +1897,9 @@ function createAddon(config) {
                 type: 'series',
                 id: 'cb_movies_series',
                 name: 'Movies & Series',
-                genres: movieSeriesGenres,
+                genres: seriesGenres,
                 extra: [
-                    { name: 'genre', options: movieSeriesGenres, isRequired: false },
+                    { name: 'genre', options: seriesGenres, isRequired: false },
                     { name: 'skip', isRequired: false }
                 ],
                 extraSupported: ['genre', 'skip']
@@ -2338,21 +2340,35 @@ function createAddon(config) {
             urlsToTry.push(`https://api.themoviedb.org/3/discover/${mediaType}?${genreFilter}&with_original_language=ja&sort_by=popularity.desc&page=${page}`);
         }
         // 4. Movies & Series
-        else if (catalogId === 'cb_movies_series' || catalogId === 'cb_trending_movies' || catalogId === 'cb_trending_series' || catalogId.includes('_shows') || catalogId.includes('_movies')) {
+        else if (catalogId === 'cb_movies_series' || catalogId === 'cb_movies_series' || catalogId === 'cb_movies_series' || catalogId.includes('_shows') || catalogId.includes('_movies')) {
             const mediaType = (type === 'series' || type === 'tv') ? 'tv' : 'movie';
             const genreMap = {
-                'Action': mediaType === 'movie' ? '28' : '10759',
-                'Comedy': '35',
-                'Drama': '18',
-                'Sci-Fi': mediaType === 'movie' ? '878' : '10765',
-                'Horror': mediaType === 'movie' ? '27' : '9648',
-                'Thriller': '53',
-                'Romance': mediaType === 'movie' ? '10749' : '18',
-                'Crime': '80',
-                'Adventure': mediaType === 'movie' ? '12' : '10759',
+                'Action': '28',
+                'Action & Adventure': '10759',
+                'Adventure': '12',
                 'Animation': '16',
-                'Fantasy': mediaType === 'movie' ? '14' : '10765',
-                'Mystery': '9648'
+                'Comedy': '35',
+                'Crime': '80',
+                'Documentary': '99',
+                'Drama': '18',
+                'Family': '10751',
+                'Fantasy': '14',
+                'History': '36',
+                'Horror': '27',
+                'Kids': '10762',
+                'Music': '10402',
+                'Mystery': '9648',
+                'News': '10763',
+                'Reality': '10764',
+                'Romance': '10749',
+                'Sci-Fi & Fantasy': '10765',
+                'Science Fiction': '878',
+                'Soap': '10766',
+                'Talk': '10767',
+                'Thriller': '53',
+                'War': '10752',
+                'War & Politics': '10768',
+                'Western': '37'
             };
             const mappedId = genreMap[genre];
             if (mappedId) {
@@ -2376,7 +2392,7 @@ function createAddon(config) {
                     });
 
                     if (res.data && Array.isArray(res.data.results) && res.data.results.length > 0) {
-                        const metas = res.data.results.map(item => {
+                        const metas = res.data.results.filter(item => item.poster_path).map(item => {
                             const isTv = (item.media_type === 'tv') || Boolean(item.name || item.first_air_date);
                             const title = item.title || item.name || 'Untitled';
                             const year = (item.release_date || item.first_air_date || '').split('-')[0] || '';
@@ -2410,7 +2426,7 @@ function createAddon(config) {
                     catalogCache.set(cacheKey, { timestamp: Date.now(), metas: cRes.data.metas });
                     return cRes.data.metas;
                 }
-            } else if (catalogId === 'cb_movies_series' || catalogId === 'cb_trending_movies' || catalogId === 'cb_trending_series') {
+            } else if (catalogId === 'cb_movies_series' || catalogId === 'cb_movies_series' || catalogId === 'cb_movies_series') {
                 const cinemetaGenre = (genre && genre !== 'All') ? encodeURIComponent(genre) : 'Action';
                 const cinemetaUrl = `https://v3-cinemeta.strem.io/catalog/${cinemetaType}/top/genre=${cinemetaGenre}.json`;
                 const cRes = await axios.get(cinemetaUrl, { timeout: 4000 });
