@@ -6402,8 +6402,8 @@
         function setDropdownActiveAncestors(w, isActive) {
             if (!w) return;
             let el = w.parentElement;
-            while (el && el !== document.body && !el.classList.contains('tab-content')) {
-                if (el.classList.contains('section-card') || el.classList.contains('section-wrap') || el.classList.contains('setting-item-row') || el.classList.contains('input-bar-group')) {
+            while (el && el !== document.body) {
+                if (el.classList.contains('tab-content') || el.classList.contains('section-card') || el.classList.contains('section-wrap') || el.classList.contains('setting-item-row') || el.classList.contains('input-bar-group') || el.classList.contains('container') || el.classList.contains('content-wrapper')) {
                     if (isActive) {
                         el.classList.add('has-active-dropdown');
                     } else {
@@ -6840,9 +6840,13 @@
                 const data = await res.json();
                 if (data.success) {
                     if (data.configId) {
+                        // Only update URL if configId actually changed (keeps install link stable)
+                        const idChanged = data.configId !== configId;
                         configId = data.configId;
                         localStorage.setItem('cb_config_id', configId);
-                        window.history.replaceState(null, '', '/c/' + configId + '/configure');
+                        if (idChanged) {
+                            window.history.replaceState(null, '', '/c/' + configId + '/configure');
+                        }
                     }
                     const saveBtn = document.getElementById('save-btn');
                     if (saveBtn) saveBtn.classList.remove('unsaved');

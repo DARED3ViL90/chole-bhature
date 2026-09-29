@@ -399,13 +399,25 @@ app.post('/api/config/save', (req, res) => {
             }
         }
 
-        // Generate an encrypted stateless token instead of trusting client's raw configId
-        const encryptedToken = encryptConfigPayload(config);
-        if (!encryptedToken) {
-            return res.status(500).json({ success: false, error: 'Failed to encrypt configuration' });
+        // If the old token still decrypts to the exact same config, reuse it to keep install links stable
+        let reusedOldToken = false;
+        const incomingToken = token || oldToken || configId;
+        if (incomingToken) {
+            const existingDecrypted = decryptConfigPayload(incomingToken);
+            if (existingDecrypted && JSON.stringify(existingDecrypted) === JSON.stringify(config)) {
+                configId = incomingToken;
+                reusedOldToken = true;
+            }
         }
         
-        configId = encryptedToken;
+        if (!reusedOldToken) {
+            // Config actually changed — generate a new encrypted token
+            const encryptedToken = encryptConfigPayload(config);
+            if (!encryptedToken) {
+                return res.status(500).json({ success: false, error: 'Failed to encrypt configuration' });
+            }
+            configId = encryptedToken;
+        }
         saveUserConfig(configId, config);
         
         // Map the frontend's original temporary token in-memory to prevent breaking the immediate save cycle
