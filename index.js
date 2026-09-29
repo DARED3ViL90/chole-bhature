@@ -38,7 +38,7 @@ function encryptConfigPayload(configObj) {
         let encrypted = cipher.update(text, 'utf8', 'base64url');
         encrypted += cipher.final('base64url');
         const authTag = cipher.getAuthTag().toString('base64url');
-        return `enc_${iv.toString('base64url')}_${encrypted}_${authTag}`;
+        return `enc_${iv.toString('base64url')}.${encrypted}.${authTag}`;
     } catch (e) {
         console.error('[Encryption Error]', e);
         return null;
@@ -48,7 +48,15 @@ function encryptConfigPayload(configObj) {
 function decryptConfigPayload(token) {
     if (!token || !token.startsWith('enc_')) return null;
     try {
-        const parts = token.split('_');
+        let parts;
+        if (token.includes('.')) {
+            const withoutPrefix = token.substring(4);
+            parts = withoutPrefix.split('.');
+            if (parts.length !== 3) return null;
+            parts = ['enc', parts[0], parts[1], parts[2]];
+        } else {
+            parts = token.split('_');
+        }
         if (parts.length !== 4) return null;
         const iv = Buffer.from(parts[1], 'base64url');
         const encrypted = parts[2];
