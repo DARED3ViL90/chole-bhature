@@ -114,6 +114,55 @@ function saveTelemetryMetrics() {
 }
 loadTelemetryMetrics();
 
+// ==========================================
+// UPSTASH KV GLOBAL STATE SYNCHRONIZATION
+// ==========================================
+const isKVEnabledGlobal = Boolean((process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || process.env.UPSTASH_REDIS_KV_REST_API_URL) && (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || process.env.UPSTASH_REDIS_KV_REST_API_TOKEN));
+
+async function loadGlobalStateFromKV() {
+    if (!isKVEnabledGlobal) return;
+    try {
+        const [kvTelemetry, kvQuarantine, kvAnalytics] = await Promise.all([
+            kv.get('global_telemetry'),
+            kv.get('global_quarantine'),
+            kv.get('global_analytics')
+        ]);
+        
+        if (kvTelemetry) telemetryMetrics = { ...telemetryMetrics, ...kvTelemetry };
+        
+        if (kvQuarantine && Array.isArray(kvQuarantine)) {
+            for (const [k, v] of kvQuarantine) quarantineRegistry.set(k, v);
+        }
+        
+        if (kvAnalytics && Array.isArray(kvAnalytics)) {
+            for (const [k, v] of kvAnalytics) providerAnalytics.set(k, v);
+        }
+        console.log('[KV] Global state successfully restored from Upstash Redis.');
+    } catch (err) {
+        console.error('[KV Error] Failed to load global state:', err.message);
+    }
+}
+
+async function syncGlobalStateToKV() {
+    if (!isKVEnabledGlobal) return;
+    try {
+        await Promise.all([
+            kv.set('global_telemetry', telemetryMetrics),
+            kv.set('global_quarantine', Array.from(quarantineRegistry.entries())),
+            kv.set('global_analytics', Array.from(providerAnalytics.entries()))
+        ]);
+    } catch (err) {
+        console.error('[KV Error] Failed to sync global state:', err.message);
+    }
+}
+
+if (isKVEnabledGlobal) {
+    loadGlobalStateFromKV();
+    // Auto-sync global state to KV every 3 minutes
+    setInterval(syncGlobalStateToKV, 3 * 60 * 1000);
+}
+
+
 // Core configuration dependency check (Cloud & Serverless Safe)
 if (!fs.existsSync(path.join(__dirname, '.secret')) && !process.env.VERCEL && !process.env.NODE_ENV) {
     try {
