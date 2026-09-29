@@ -27,7 +27,7 @@ if (SECRET_ENCRYPTION_KEY) {
     console.warn('All encrypted Stremio install links WILL BREAK on server restart.');
     console.warn('Please set ENCRYPTION_KEY in your environment to a secure string.');
     console.warn('================================================================');
-    SECRET_ENCRYPTION_KEY = crypto.randomBytes(32);
+    SECRET_ENCRYPTION_KEY = crypto.createHash('sha256').update('nuvio-default-volatile-fallback-key-2026').digest();
 }
 
 function encryptConfigPayload(configObj) {
@@ -381,6 +381,23 @@ app.get(['/c/:configId', '/c/:configId/configure', '/configure/:configId'], (req
 });
 
 // API to save configuration (Instant Sync)
+
+function isDeepEqual(obj1, obj2) {
+    if (obj1 === obj2) return true;
+    if (typeof obj1 !== 'object' || typeof obj2 !== 'object' || obj1 == null || obj2 == null) {
+        return false;
+    }
+    const keys1 = Object.keys(obj1);
+    const keys2 = Object.keys(obj2);
+    if (keys1.length !== keys2.length) return false;
+    for (const key of keys1) {
+        if (!keys2.includes(key) || !isDeepEqual(obj1[key], obj2[key])) {
+            return false;
+        }
+    }
+    return true;
+}
+
 app.post('/api/config/save', (req, res) => {
     try {
         let { configId, token, config, oldToken } = req.body;
@@ -404,7 +421,7 @@ app.post('/api/config/save', (req, res) => {
         const incomingToken = token || oldToken || configId;
         if (incomingToken) {
             const existingDecrypted = decryptConfigPayload(incomingToken);
-            if (existingDecrypted && JSON.stringify(existingDecrypted) === JSON.stringify(config)) {
+            if (existingDecrypted && isDeepEqual(existingDecrypted, config)) {
                 configId = incomingToken;
                 reusedOldToken = true;
             }
