@@ -6286,14 +6286,18 @@
 
         function getDisplayShortId(tokenOrId) {
             if (!tokenOrId) return 'cb-live';
-            const clean = tokenOrId.replace(/^ID:\s*/i, '');
-            if (clean.length <= 10 && !clean.startsWith('eyJ')) return clean;
+            const clean = tokenOrId.replace(/^ID:\s*/i, '').trim();
+            // If it's already a short ID (like Vercel's 8-char config ID)
+            if (clean.length <= 10 && !clean.startsWith('eyJ')) {
+                return clean.startsWith('cb-') ? clean : `cb-${clean}`;
+            }
+            // If it's a long JWT token (localhost), create an 8-char hash
             let hash = 0;
             for (let i = 0; i < clean.length; i++) {
                 hash = ((hash << 5) - hash) + clean.charCodeAt(i);
                 hash |= 0;
             }
-            const hex = Math.abs(hash).toString(16).padStart(6, '0').substring(0, 6);
+            const hex = Math.abs(hash).toString(16).padStart(8, '0').substring(0, 8);
             return `cb-${hex}`;
         }
 
