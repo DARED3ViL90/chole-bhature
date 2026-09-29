@@ -426,7 +426,7 @@ app.post('/api/config/save', (req, res) => {
 
         // If the old token still decrypts to the exact same config, reuse it to keep install links stable
         let reusedOldToken = false;
-        const incomingToken = token || oldToken || configId;
+        const incomingToken = oldToken || configId || token;
         if (incomingToken) {
             const existingDecrypted = decryptConfigPayload(incomingToken);
             if (existingDecrypted && isDeepEqual(existingDecrypted, config)) {
