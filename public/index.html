@@ -228,7 +228,7 @@
             top: calc(16px + env(safe-area-inset-top));
             left: 50%;
             transform: translateX(-50%);
-            z-index: 1000;
+            z-index: 999999 !important;
             width: fit-content;
             max-width: calc(100% - 16px);
             min-width: min(840px, calc(100% - 16px));
@@ -2503,7 +2503,7 @@
             border-radius: var(--radius-pill);
             justify-content: space-around;
             align-items: center;
-            z-index: 1000;
+            z-index: 999999 !important;
             box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.70), 0 0 0 1px rgba(var(--overlay-base), 0.04), inset 0 1px 0 rgba(var(--overlay-base), 0.18);
             padding: 4px 6px;
             box-sizing: border-box;
@@ -4111,7 +4111,7 @@
                         <style>
                             #bulkActionTypeSelect-custom-wrap { width: auto; font-size: 12px; }
                             #bulkActionTypeSelect-custom-wrap .custom-select-trigger { padding: 6px 14px; border-radius: 9999px; background-color: var(--bg-surface); min-width: 130px; height: 28px; }
-                            #bulkActionTypeSelect-custom-wrap .custom-select-menu { width: max-content; min-width: 100%; right: 0; left: auto; }
+                            #bulkActionTypeSelect-custom-wrap .custom-select-menu { width: max-content; min-width: 100%; left: 0; right: auto; max-width: calc(100vw - 32px); }
                             #bulkActionTypeSelect-custom-wrap .custom-select-option { padding: 8px 12px; font-size: 12px; }
                             #bulkActionTypeSelect-custom-wrap .custom-select-arrow svg { width: 12px; height: 12px; }
                         </style>
