@@ -4211,60 +4211,137 @@
                     </form>
                     <div style="margin-top: 14px; display: flex; flex-direction: column; gap: 8px;">
                         <style>
+                            .repo-quick-add-row {
+                                display: flex;
+                                flex-wrap: wrap;
+                                align-items: center;
+                                justify-content: space-between;
+                                width: 100%;
+                                gap: 10px;
+                            }
+                            .repo-quick-add-scroll-wrap {
+                                display: flex;
+                                align-items: center;
+                                gap: 6px;
+                                flex-wrap: nowrap;
+                                overflow-x: auto;
+                                scrollbar-width: none;
+                                -webkit-overflow-scrolling: touch;
+                                min-width: 0;
+                                max-width: 100%;
+                                padding: 2px 0;
+                            }
+                            .repo-quick-add-scroll-wrap::-webkit-scrollbar {
+                                display: none;
+                            }
+                            .repo-quick-add-label {
+                                font-size: 11px;
+                                font-weight: 700;
+                                text-transform: uppercase;
+                                letter-spacing: 0.5px;
+                                color: var(--text-muted);
+                                display: inline-flex;
+                                align-items: center;
+                                white-space: nowrap;
+                                flex-shrink: 0;
+                                margin-right: 2px;
+                            }
+                            .quick-add-btn {
+                                cursor: pointer;
+                                padding: 4.5px 10px;
+                                font-size: 11.5px;
+                                font-weight: 600;
+                                background: rgba(139, 92, 246, 0.12);
+                                border: 1px solid rgba(139, 92, 246, 0.35);
+                                color: var(--text-purple);
+                                transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+                                border-radius: 9999px;
+                                display: inline-flex;
+                                align-items: center;
+                                justify-content: center;
+                                text-align: center;
+                                white-space: nowrap;
+                                flex-shrink: 0;
+                                box-sizing: border-box;
+                                user-select: none;
+                            }
+                            .quick-add-btn:hover {
+                                background: rgba(139, 92, 246, 0.22);
+                                border-color: rgba(139, 92, 246, 0.55);
+                                transform: translateY(-1px);
+                            }
+                            .quick-add-btn.cb-provider-preset-btn {
+                                font-weight: 700;
+                                background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(239, 68, 68, 0.15));
+                                border-color: rgba(245, 158, 11, 0.5);
+                                color: #fbbf24;
+                            }
+                            .quick-add-btn.cb-provider-preset-btn:hover {
+                                background: linear-gradient(135deg, rgba(245, 158, 11, 0.3), rgba(239, 68, 68, 0.25));
+                                border-color: rgba(245, 158, 11, 0.7);
+                            }
                             .nuvio-plugin-lib-btn {
-                                padding: 6px 12px;
-                                font-size: 12px;
+                                padding: 5px 12px;
+                                font-size: 11.5px;
                                 margin-left: auto;
                                 cursor: pointer;
                                 font-weight: 700;
                                 background: rgba(6, 182, 212, 0.12);
                                 border: 1px solid rgba(6, 182, 212, 0.35);
                                 color: var(--accent-secondary);
-                                transition: all 0.2s;
+                                transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
                                 text-decoration: none;
                                 display: inline-flex;
                                 align-items: center;
                                 border-radius: 9999px;
+                                white-space: nowrap;
+                                flex-shrink: 0;
+                            }
+                            .nuvio-plugin-lib-btn:hover {
+                                background: rgba(6, 182, 212, 0.22);
+                                border-color: rgba(6, 182, 212, 0.55);
+                                transform: translateY(-1px);
                             }
 
                             @media (max-width: 768px) {
+                                .repo-quick-add-row {
+                                    flex-direction: column;
+                                    align-items: stretch;
+                                    gap: 8px;
+                                }
+                                .repo-quick-add-scroll-wrap {
+                                    width: 100%;
+                                    justify-content: flex-start;
+                                }
                                 .nuvio-plugin-lib-btn {
                                     width: 100%;
-                                    margin-top: 8px;
                                     margin-left: 0;
                                     justify-content: center;
-                                    padding: 8px 12px;
-                                    font-size: 12.5px;
+                                    padding: 7.5px 12px;
+                                    font-size: 11.5px;
+                                    box-sizing: border-box;
                                 }
                             }
                         </style>
-                        <div
-                            style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; width: 100%;">
-                            <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-                                <span
-                                    style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-muted); display: flex; align-items: center;">⚡
-                                    Quick-Add:</span>
-                                <button type="button" class="tag-pill-badge"
-                                    style="cursor: pointer; padding: 6px 12px; font-size: 12px; font-weight: 700; background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(239, 68, 68, 0.15)); border-color: rgba(245, 158, 11, 0.5); color: #fbbf24; transition: all 0.2s;"
+                        <div class="repo-quick-add-row">
+                            <div class="repo-quick-add-scroll-wrap">
+                                <span class="repo-quick-add-label">⚡ Quick-Add:</span>
+                                <button type="button" class="quick-add-btn cb-provider-preset-btn"
                                     onclick="setRepoPreset('https://raw.githubusercontent.com/SA7ANI/cb-providers/main/manifest.json')">
                                     🌶️ CB Provider
                                 </button>
-                                <button type="button" class="tag-pill-badge"
-                                    style="cursor: pointer; padding: 6px 12px; font-size: 12px; font-weight: 600; background: rgba(139, 92, 246, 0.12); border-color: rgba(139, 92, 246, 0.35); color: var(--text-purple); transition: all 0.2s;"
+                                <button type="button" class="quick-add-btn"
                                     onclick="setRepoPreset('https://raw.githubusercontent.com/yoruix/nuvio-providers/refs/heads/main/manifest.json')">
                                     Yoru
                                 </button>
-                                <button type="button" class="tag-pill-badge"
-                                    style="cursor: pointer; padding: 6px 12px; font-size: 12px; font-weight: 600; background: rgba(139, 92, 246, 0.12); border-color: rgba(139, 92, 246, 0.35); color: var(--text-purple); transition: all 0.2s;"
+                                <button type="button" class="quick-add-btn"
                                     onclick="setRepoPreset('https://raw.githubusercontent.com/D3adlyRocket/All-in-One-Nuvio/refs/heads/main/manifest.json')">
                                     D3adlyRocket
                                 </button>
-                                <button type="button" class="tag-pill-badge"
-                                    style="cursor: pointer; padding: 6px 12px; font-size: 12px; font-weight: 600; background: rgba(139, 92, 246, 0.12); border-color: rgba(139, 92, 246, 0.35); color: var(--text-purple); transition: all 0.2s;"
+                                <button type="button" class="quick-add-btn"
                                     onclick="setRepoPreset('https://codeberg.org/api/v1/repos/eclipsia/nuvio-plugin/raw/manifest.json')">
                                     Eclipsia
                                 </button>
-
                             </div>
                             <a href="https://nuvio-plugin-library.vercel.app/" target="_blank"
                                 class="nuvio-plugin-lib-btn">
@@ -4998,8 +5075,14 @@
                         box-shadow: 0 2px 8px rgba(139, 92, 246, 0.2) !important;
                     }
 
-                    /* Subtabs Responsive Floating Pill System (Strictly Single Row) */
-                    /* Subtabs Responsive Segmented Pill System (Equal 4-Segment Grid) */
+                    /* Subtabs Responsive Floating Pill System (Adaptive Labels & Symmetrical Centering) */
+                    .subtab-label-short {
+                        display: none !important;
+                    }
+                    .subtab-label-full {
+                        display: inline !important;
+                    }
+
                     .admin-subtab-container {
                         display: flex;
                         justify-content: center;
@@ -5009,57 +5092,59 @@
                         padding: 0 4px;
                         box-sizing: border-box;
                     }
-                    .admin-subtab-container::-webkit-scrollbar {
-                        display: none;
-                    }
                     .admin-subtab-bar,
                     #admin-provider-subtabs-bar {
-                        display: flex !important;
-                        width: 100% !important;
-                        max-width: 540px !important;
+                        display: inline-flex !important;
+                        align-items: center !important;
+                        justify-content: center !important;
+                        width: auto !important;
+                        max-width: 100% !important;
                         margin: 0 auto !important;
                         background: rgba(13, 17, 28, 0.85) !important;
                         backdrop-filter: blur(24px) saturate(190%) !important;
                         -webkit-backdrop-filter: blur(24px) saturate(190%) !important;
-                        border-radius: 13px !important;
+                        border-radius: 14px !important;
                         border: 1px solid rgba(255, 255, 255, 0.12) !important;
-                        padding: 3.5px !important;
-                        gap: 3px !important;
-                        box-shadow: 0 16px 36px -10px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
+                        padding: 4px 5px !important;
+                        gap: 5px !important;
+                        box-shadow: 0 16px 36px -10px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.14) !important;
                         box-sizing: border-box !important;
-                        overflow: hidden !important;
+                        white-space: nowrap !important;
+                        overflow-x: auto !important;
+                        scroll-behavior: smooth !important;
+                        -webkit-overflow-scrolling: touch !important;
+                        scrollbar-width: none !important;
                     }
-                    .admin-subtab-bar::-webkit-scrollbar {
-                        display: none;
+                    .admin-subtab-bar::-webkit-scrollbar,
+                    #admin-provider-subtabs-bar::-webkit-scrollbar {
+                        display: none !important;
                     }
                     .admin-subtab-bar .admin-subtab-btn,
                     #admin-provider-subtabs-bar .admin-subtab-btn {
-                        flex: 1 1 0% !important;
-                        width: 25% !important;
-                        min-width: 0 !important;
-                        max-width: 25% !important;
+                        flex: 0 0 auto !important;
+                        width: auto !important;
                         background: transparent !important;
                         color: var(--text-secondary) !important;
                         border: 1px solid transparent !important;
                         border-radius: 10px !important;
-                        padding: 8px 4px !important;
-                        font-size: 12px !important;
+                        padding: 8px 16px !important;
+                        font-size: 12.5px !important;
                         font-weight: 700 !important;
                         display: inline-flex !important;
                         align-items: center !important;
                         justify-content: center !important;
-                        gap: 6px !important;
+                        gap: 7px !important;
                         cursor: pointer !important;
                         transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
                         white-space: nowrap !important;
                         user-select: none !important;
                         box-sizing: border-box !important;
-                        text-align: center !important;
                     }
                     .admin-subtab-bar .admin-subtab-btn:hover:not(.active-admin-subtab),
                     #admin-provider-subtabs-bar .admin-subtab-btn:hover:not(.active-admin-subtab) {
                         color: #ffffff !important;
                         background: rgba(255, 255, 255, 0.06) !important;
+                        border-color: rgba(255, 255, 255, 0.1) !important;
                     }
                     .admin-subtab-bar .admin-subtab-btn.active-admin-subtab,
                     #admin-provider-subtabs-bar .admin-subtab-btn.active-admin-subtab {
@@ -5069,33 +5154,36 @@
                         box-shadow: 0 4px 16px rgba(139, 92, 246, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
                     }
 
-                    @media (max-width: 640px) {
+                    /* Adaptive Single-Row Centered Layout on Smaller Screens (<= 680px) */
+                    @media (max-width: 680px) {
+                        .subtab-label-full {
+                            display: none !important;
+                        }
+                        .subtab-label-short {
+                            display: inline !important;
+                        }
                         .admin-subtab-container {
-                            padding: 0 !important;
+                            justify-content: center !important;
+                            padding: 0 4px !important;
                             margin-bottom: 14px !important;
+                            width: 100% !important;
                         }
                         .admin-subtab-bar,
                         #admin-provider-subtabs-bar {
+                            width: auto !important;
                             max-width: 100% !important;
+                            justify-content: center !important;
                             border-radius: 12px !important;
-                            padding: 3px !important;
-                            gap: 2.5px !important;
+                            padding: 3.5px 5px !important;
+                            gap: 4px !important;
+                            margin: 0 auto !important;
                         }
                         .admin-subtab-bar .admin-subtab-btn,
                         #admin-provider-subtabs-bar .admin-subtab-btn {
-                            padding: 7px 2px !important;
+                            padding: 7px 11px !important;
                             font-size: 11.5px !important;
-                            gap: 3px !important;
+                            gap: 5px !important;
                             border-radius: 9px !important;
-                        }
-                    }
-
-                    @media (max-width: 380px) {
-                        .admin-subtab-bar .admin-subtab-btn,
-                        #admin-provider-subtabs-bar .admin-subtab-btn {
-                            font-size: 10.5px !important;
-                            padding: 6px 1px !important;
-                            gap: 2px !important;
                         }
                     }
 
@@ -6531,16 +6619,16 @@
                     <div class="admin-subtab-container">
                         <div class="admin-subtab-bar" id="admin-provider-subtabs-bar">
                             <button id="admin-nav-fleet" class="pill-btn admin-subtab-btn active-admin-subtab" onclick="switchProviderSubTab('admin-sub-fleet', this)" title="Scraper Fleet & Priorities">
-                                <span>⚡</span> <span>Fleet</span>
+                                <span>⚡</span> <span class="subtab-label-full">Scraper Fleet</span><span class="subtab-label-short">Fleet</span>
                             </button>
                             <button id="admin-nav-editor" class="pill-btn admin-subtab-btn" onclick="switchProviderSubTab('admin-sub-editor', this)" title="Code Studio & Overrides">
-                                <span>📝</span> <span>Studio</span>
+                                <span>📝</span> <span class="subtab-label-full">Code Studio & Overrides</span><span class="subtab-label-short">Studio</span>
                             </button>
                             <button id="admin-nav-tester" class="pill-btn admin-subtab-btn" onclick="switchProviderSubTab('admin-sub-tester', this)" title="Live Diagnostics & Lab">
-                                <span>🧪</span> <span>Lab</span>
+                                <span>🧪</span> <span class="subtab-label-full">Diagnostics & Lab</span><span class="subtab-label-short">Lab</span>
                             </button>
                             <button id="admin-nav-cd" class="pill-btn admin-subtab-btn" onclick="switchProviderSubTab('admin-sub-cd', this)" title="CD & Hermes Deployment">
-                                <span>🚀</span> <span>Deploy</span>
+                                <span>🚀</span> <span class="subtab-label-full">CD & Deployment</span><span class="subtab-label-short">Deploy</span>
                             </button>
                         </div>
                     </div>
@@ -13044,6 +13132,37 @@
             const bar = document.getElementById('admin-provider-subtabs-bar');
             if (!bar || bar._hasInteractionsAttached) return;
             bar._hasInteractionsAttached = true;
+
+            function updateScrollMask() {
+                if (window.innerWidth > 768) {
+                    bar.style.webkitMaskImage = 'none';
+                    bar.style.maskImage = 'none';
+                    return;
+                }
+                const maxScroll = bar.scrollWidth - bar.clientWidth;
+                if (maxScroll <= 4) {
+                    bar.style.webkitMaskImage = 'none';
+                    bar.style.maskImage = 'none';
+                    return;
+                }
+                const isAtStart = bar.scrollLeft <= 4;
+                const isAtEnd = bar.scrollLeft >= maxScroll - 4;
+
+                if (isAtStart) {
+                    bar.style.webkitMaskImage = 'linear-gradient(to right, black calc(100% - 30px), transparent 100%)';
+                    bar.style.maskImage = 'linear-gradient(to right, black calc(100% - 30px), transparent 100%)';
+                } else if (isAtEnd) {
+                    bar.style.webkitMaskImage = 'linear-gradient(to right, transparent 0, black 30px, black 100%)';
+                    bar.style.maskImage = 'linear-gradient(to right, transparent 0, black 30px, black 100%)';
+                } else {
+                    bar.style.webkitMaskImage = 'linear-gradient(to right, transparent 0, black 24px, black calc(100% - 24px), transparent 100%)';
+                    bar.style.maskImage = 'linear-gradient(to right, transparent 0, black 24px, black calc(100% - 24px), transparent 100%)';
+                }
+            }
+
+            bar.addEventListener('scroll', updateScrollMask, { passive: true });
+            window.addEventListener('resize', updateScrollMask, { passive: true });
+            setTimeout(updateScrollMask, 60);
 
             // Direct mouse wheel horizontal scrolling (for Windows desktop mice!)
             bar.addEventListener('wheel', (e) => {
