@@ -683,18 +683,63 @@ function applyGlobalAdminOverrides(userConfig) {
     return cfg;
 }
 
+const getGithubToken = () => {
+    const t = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || process.env.github_token;
+    return (t && typeof t === 'string' && t.trim()) ? t.trim() : null;
+};
+
+async function commitFileToGitHub(filePath, contentString, commitMessage, branch = 'main') {
+    const token = getGithubToken();
+    if (!token) {
+        throw new Error('GITHUB_TOKEN environment variable is not configured');
+    }
+    const repo = 'SA7ANI/cb-providers';
+    const cleanPath = filePath.replace(/^\/+/, '');
+    const url = `https://api.github.com/repos/${repo}/contents/${cleanPath}`;
+    const headers = {
+        'Authorization': `Bearer ${token}`,
+        'User-Agent': 'CholeBhature-Admin',
+        'Accept': 'application/vnd.github.v3+json'
+    };
+
+    let sha = null;
+    try {
+        const getRes = await axios.get(`${url}?ref=${branch}`, { headers, timeout: 8000 });
+        if (getRes.data && getRes.data.sha) {
+            sha = getRes.data.sha;
+        }
+    } catch (_) {}
+
+    const body = {
+        message: commitMessage || `Update ${cleanPath} via Chole Bhature Admin`,
+        content: Buffer.from(contentString, 'utf8').toString('base64'),
+        branch: branch
+    };
+    if (sha) body.sha = sha;
+
+    const putRes = await axios.put(url, body, { headers, timeout: 15000 });
+    return putRes.data;
+}
+
 function loadAdminSettings() {
     try {
-        const repoSettingsFile = path.join(__dirname, 'admin_settings.json');
-        if (fs.existsSync(repoSettingsFile)) {
-            const raw = fs.readFileSync(repoSettingsFile, 'utf8');
-            const data = JSON.parse(raw);
-            globalServerSettings = { ...globalServerSettings, ...data };
-        }
-        if (isVercel && fs.existsSync(ADMIN_SETTINGS_FILE)) {
-            const raw = fs.readFileSync(ADMIN_SETTINGS_FILE, 'utf8');
-            const data = JSON.parse(raw);
-            globalServerSettings = { ...globalServerSettings, ...data };
+        const possibleSettingsFiles = [
+            path.join(__dirname, 'admin_settings.json'),
+            path.join(process.cwd(), 'admin_settings.json'),
+            path.join(__dirname, '..', 'admin_settings.json'),
+            ADMIN_SETTINGS_FILE
+        ];
+        for (const f of possibleSettingsFiles) {
+            if (f && fs.existsSync(f)) {
+                try {
+                    const raw = fs.readFileSync(f, 'utf8');
+                    const data = JSON.parse(raw);
+                    if (data && typeof data === 'object') {
+                        globalServerSettings = { ...globalServerSettings, ...data };
+                        break;
+                    }
+                } catch (_) {}
+            }
         }
         if (process.env.RENDER_API_KEY) {
             globalServerSettings.renderApiKey = process.env.RENDER_API_KEY;
@@ -727,6 +772,31 @@ function saveAdminSettings() {
     }
 }
 loadAdminSettings();
+
+async function ensureCloudLocalRepo() {
+    const dirs = getCbProviderRepoDirs();
+    if (dirs.length === 0 && (!Array.isArray(globalServerSettings.localRepo) || globalServerSettings.localRepo.length === 0)) {
+        try {
+            console.log('[Admin] Cloud Boot: Fetching manifest from SA7ANI/cb-providers GitHub raw...');
+            const rawUrl = 'https://raw.githubusercontent.com/SA7ANI/cb-providers/main/manifest.json';
+            const mRes = await axios.get(rawUrl, { timeout: 8000 });
+            if (mRes.data && (mRes.data.scrapers || mRes.data.providers)) {
+                globalServerSettings.localRepo = mRes.data.scrapers || mRes.data.providers;
+                if (mRes.data.name || mRes.data.version) {
+                    globalServerSettings.providerRepoConfig = {
+                        name: mRes.data.name || "CB Provider Repo",
+                        version: mRes.data.version || "2.4.0",
+                        description: mRes.data.description || ""
+                    };
+                }
+                saveAdminSettings();
+                console.log(`[Admin] Cloud Boot: Successfully initialized ${globalServerSettings.localRepo.length} scrapers from GitHub!`);
+            }
+        } catch (e) {
+            console.error('[Admin] Cloud Boot manifest fetch failed:', e.message);
+        }
+    }
+}
 
 // CB Providers Repository Discovery & Synchronization Hub
 function getCbProviderRepoDirs() {
@@ -895,11 +965,9 @@ function syncLocalRepoWithManifest() {
     }
 }
 
-function saveCbProvidersManifest() {
+async function saveCbProvidersManifest() {
     try {
         const dirs = getCbProviderRepoDirs();
-        if (dirs.length === 0) return;
-
         const config = globalServerSettings.providerRepoConfig || {
             name: "CB Provider Repo",
             version: "1.0.0",
@@ -931,10 +999,27 @@ function saveCbProvidersManifest() {
 
         const manifestStr = JSON.stringify(manifestContent, null, 2);
 
-        for (const dir of dirs) {
-            const mPath = path.join(dir, 'manifest.json');
-            fs.writeFileSync(mPath, manifestStr, 'utf8');
-            console.log(`[Admin] Saved manifest.json to ${mPath}`);
+        if (dirs.length > 0) {
+            for (const dir of dirs) {
+                const mPath = path.join(dir, 'manifest.json');
+                fs.writeFileSync(mPath, manifestStr, 'utf8');
+                console.log(`[Admin] Saved manifest.json to ${mPath}`);
+            }
+        }
+
+        // Auto-commit to GitHub if GITHUB_TOKEN is configured in environment
+        const ghToken = getGithubToken();
+        if (ghToken) {
+            try {
+                console.log('[Admin] Auto-committing manifest.json to GitHub repository...');
+                await commitFileToGitHub('manifest.json', manifestStr, `Update manifest.json (${scrapersList.length} scrapers) via Chole Bhature Admin`, 'main');
+                try {
+                    await commitFileToGitHub('manifest.json', manifestStr, `Update manifest.json (${scrapersList.length} scrapers) via Chole Bhature Admin`, 'template');
+                } catch (_) {}
+                console.log('[Admin] Successfully auto-committed manifest.json to GitHub!');
+            } catch (gitErr) {
+                console.error('[Admin] GitHub Auto-Commit error:', gitErr.message);
+            }
         }
 
         if (providerLoader && typeof providerLoader.clearCache === 'function') {
@@ -946,6 +1031,7 @@ function saveCbProvidersManifest() {
 }
 
 syncLocalRepoWithManifest();
+ensureCloudLocalRepo();
 
 // Render Free-Tier 512MB RAM Memory Guard
 function enforceRenderMemoryGuard() {
@@ -1585,7 +1671,7 @@ const handleUpdateAdminSettings = async (req, res) => {
     }
     if (Array.isArray(localRepo)) {
         globalServerSettings.localRepo = localRepo;
-        saveCbProvidersManifest();
+        await saveCbProvidersManifest();
     }
 
     if (typeof globalEcoMode === 'boolean') {
@@ -1680,17 +1766,27 @@ app.get('/api/telemetry/settings', (req, res) => {
     }
     return res.json({ settings: getPublicServerSettings() });
 });
-app.get('/api/admin/settings', (req, res) => {
-    syncLocalRepoWithManifest();
+app.get('/api/admin/settings', async (req, res) => {
+    const dirs = getCbProviderRepoDirs();
+    if (dirs.length === 0 && (!Array.isArray(globalServerSettings.localRepo) || globalServerSettings.localRepo.length === 0)) {
+        await ensureCloudLocalRepo();
+    } else {
+        syncLocalRepoWithManifest();
+    }
     if (checkDiagnosticsAuth(req)) {
         return res.json({ success: true, settings: globalServerSettings });
     }
     return res.json({ success: true, settings: getPublicServerSettings() });
 });
-app.post('/api/admin/sync-cb-providers', (req, res) => {
+app.post('/api/admin/sync-cb-providers', async (req, res) => {
     if (!checkDiagnosticsAuth(req)) return res.status(401).json({ success: false, error: 'Unauthorized' });
     try {
-        syncLocalRepoWithManifest();
+        const dirs = getCbProviderRepoDirs();
+        if (dirs.length === 0) {
+            await ensureCloudLocalRepo();
+        } else {
+            syncLocalRepoWithManifest();
+        }
         res.json({
             success: true,
             scrapersCount: (globalServerSettings.localRepo || []).length,
@@ -1754,7 +1850,7 @@ app.get('/api/admin/provider-code', async (req, res) => {
         res.status(500).json({ success: false, error: e.message });
     }
 });
-app.post('/api/admin/provider-code', (req, res) => {
+app.post('/api/admin/provider-code', async (req, res) => {
     if (!checkDiagnosticsAuth(req)) return res.status(401).json({ success: false, error: 'Unauthorized' });
     const { filename, code } = req.body;
     if (!filename || !code) return res.status(400).json({ success: false, error: 'filename or code missing' });
@@ -1766,10 +1862,26 @@ app.post('/api/admin/provider-code', (req, res) => {
             if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
             fs.writeFileSync(filePath, code, 'utf8');
         }
+
+        // Auto-commit to GitHub if GITHUB_TOKEN is available
+        const ghToken = getGithubToken();
+        let gitCommitted = false;
+        if (ghToken) {
+            try {
+                await commitFileToGitHub(filename, code, `Update ${filename} via Chole Bhature Code Studio`, 'main');
+                try {
+                    await commitFileToGitHub(filename, code, `Update ${filename} via Chole Bhature Code Studio`, 'template');
+                } catch (_) {}
+                gitCommitted = true;
+            } catch (err) {
+                console.error('[Admin] GitHub Auto-Commit failed for provider-code:', err.message);
+            }
+        }
+
         if (providerLoader && typeof providerLoader.clearCache === 'function') {
             providerLoader.clearCache('local');
         }
-        res.json({ success: true });
+        res.json({ success: true, gitCommitted });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
     }
@@ -1992,12 +2104,49 @@ app.post('/api/admin/provider-git-push', async (req, res) => {
             });
         } else {
             // Cloud Serverless Mode (e.g. Vercel)
-            const cdnResult = await purgeJsDelivrCache(targetBranch);
-
-            // If GITHUB_TOKEN is available, trigger workflow_dispatch
+            const ghToken = getGithubToken();
+            let commitResultMsg = '';
             let actionTriggered = false;
-            const ghToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+
             if (ghToken) {
+                try {
+                    const config = globalServerSettings.providerRepoConfig || {
+                        name: "CB Provider Repo",
+                        version: "1.0.0",
+                        description: "Auto-generated Nuvio provider plugin managed by Chole Bhature Ecosystem."
+                    };
+                    const scrapersList = (globalServerSettings.localRepo || []).map(p => ({
+                        id: p.id || p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+                        name: p.name,
+                        description: p.description || `${p.name} provider for Nuvio`,
+                        version: p.version || "1.0.0",
+                        author: p.author || "Chole Bhature",
+                        supportedTypes: Array.isArray(p.supportedTypes) ? p.supportedTypes : ["movie", "tv"],
+                        filename: p.filename || `providers/${p.name.toLowerCase().replace(/[^a-z0-9]+/g, '')}.js`,
+                        enabled: p.enabled !== false,
+                        formats: Array.isArray(p.formats) ? p.formats : ["mp4", "m3u8"],
+                        logo: p.logo || "",
+                        contentLanguage: Array.isArray(p.contentLanguage) ? p.contentLanguage : ["en"]
+                    }));
+                    const manifestContent = {
+                        manifestVersion: 1,
+                        name: config.name || "CB Provider Repo",
+                        version: config.version || "1.0.0",
+                        description: config.description || "Auto-generated Nuvio provider plugin managed by Chole Bhature Ecosystem.",
+                        scrapers: scrapersList,
+                        providers: scrapersList
+                    };
+                    const manifestStr = JSON.stringify(manifestContent, null, 2);
+                    const commitRes = await commitFileToGitHub('manifest.json', manifestStr, msg, targetBranch);
+                    try {
+                        await commitFileToGitHub('manifest.json', manifestStr, msg, 'template');
+                    } catch (_) {}
+                    commitResultMsg = `✅ Committed manifest.json (${scrapersList.length} providers) to GitHub (${targetBranch} & template)`;
+                } catch (cErr) {
+                    commitResultMsg = `⚠️ GitHub Auto-Commit note: ${cErr.message}`;
+                }
+
+                // Also trigger GitHub Action CD pipeline
                 try {
                     await axios.post('https://api.github.com/repos/SA7ANI/cb-providers/actions/workflows/cd.yml/dispatches', {
                         ref: targetBranch
@@ -2013,7 +2162,11 @@ app.post('/api/admin/provider-git-push', async (req, res) => {
                 } catch (e) {
                     console.warn('[GitHub Action] Workflow dispatch failed:', e.message);
                 }
+            } else {
+                commitResultMsg = '⚡ Cloud Serverless: GITHUB_TOKEN not found in Vercel environment variables.';
             }
+
+            const cdnResult = await purgeJsDelivrCache(targetBranch);
 
             // Sync in-memory manifest from GitHub raw
             try {
@@ -2028,8 +2181,8 @@ app.post('/api/admin/provider-git-push', async (req, res) => {
             return res.json({
                 success: true,
                 branch: targetBranch,
-                commitResult: '⚡ Cloud Environment: Serverless execution on Vercel.',
-                message: `🚀 CDN & Cloud Sync Complete!\n- Purged jsDelivr CDN cache for ${cdnResult.count || 29} providers.\n- Distribution is immediately live on CDN.\n${actionTriggered ? '- Triggered GitHub Actions CD pipeline.' : '- (To trigger GitHub Actions remotely, set GITHUB_TOKEN in Vercel environment variables).'}`
+                commitResult: commitResultMsg,
+                message: `🚀 Cloud Sync & Deployment Complete!\n${commitResultMsg}\n- Purged jsDelivr CDN cache for ${cdnResult.count || 29} providers.\n${actionTriggered ? '- Triggered GitHub Actions CD pipeline.' : ''}`
             });
         }
     } catch (e) {

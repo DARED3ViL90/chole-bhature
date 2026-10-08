@@ -14318,11 +14318,13 @@
                 });
                 const data = await res.json();
                 const s = (data && data.settings) ? data.settings : data;
-                if (s && Array.isArray(s.localRepo)) {
+                if (s && Array.isArray(s.localRepo) && s.localRepo.length > 0) {
                     adminLocalScrapers = s.localRepo;
                     renderAdminScrapers();
                     if (typeof populateStudioScraperSelect === 'function') populateStudioScraperSelect();
                     if (typeof populateBenchScraperSelect === 'function') populateBenchScraperSelect();
+                } else if (!adminLocalScrapers || adminLocalScrapers.length === 0) {
+                    syncFromDisk();
                 }
             } catch (e) {
                 console.error("Failed to load repo settings:", e);
