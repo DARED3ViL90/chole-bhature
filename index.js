@@ -485,12 +485,14 @@ if (fs.existsSync(cbProviderDir)) {
 
 app.get(['/', '/configure', '/index.html'], (req, res) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // Serve configure page on configId routes
 app.get(['/c/:configId', '/c/:configId/configure', '/configure/:configId'], (req, res) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
@@ -3793,7 +3795,7 @@ app.use((req, res, next) => {
 
 const PORT = process.env.PORT || 7000;
 if (!process.env.VERCEL) {
-    app.listen(PORT, '0.0.0.0', () => {
+    const server = app.listen(PORT, '0.0.0.0', () => {
         console.log(`
 ========================================================================
   🌶️  CHOLE BHATURE • Meta-Sorter & Priority Engine v4.4.0
@@ -3806,6 +3808,14 @@ if (!process.env.VERCEL) {
   🩺 Health Endpoint:   http://localhost:${PORT}/health
 ========================================================================
         `);
+    });
+    server.on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+            console.error(`\n❌ Error: Port ${PORT} is already in use by another running process.`);
+            console.error(`Please stop the existing process or run with a different port (e.g. PORT=7001 npm start)\n`);
+        } else {
+            console.error('Server error:', err);
+        }
     });
 }
 

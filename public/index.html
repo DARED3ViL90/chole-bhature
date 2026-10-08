@@ -4999,15 +4999,12 @@
                     }
 
                     /* Subtabs Responsive Floating Pill System (Strictly Single Row) */
+                    /* Subtabs Responsive Segmented Pill System (Equal 4-Segment Grid) */
                     .admin-subtab-container {
                         display: flex;
                         justify-content: center;
                         align-items: center;
                         width: 100%;
-                        max-width: 100%;
-                        overflow-x: auto;
-                        scrollbar-width: none;
-                        -webkit-overflow-scrolling: touch;
                         margin-bottom: 20px;
                         padding: 0 4px;
                         box-sizing: border-box;
@@ -5015,110 +5012,90 @@
                     .admin-subtab-container::-webkit-scrollbar {
                         display: none;
                     }
-                    .admin-subtab-bar {
-                        display: inline-flex;
-                        align-items: center;
-                        gap: 6px;
-                        background: rgba(13, 17, 28, 0.85);
-                        backdrop-filter: blur(24px) saturate(190%);
-                        -webkit-backdrop-filter: blur(24px) saturate(190%);
-                        border-radius: 14px;
-                        border: 1px solid rgba(255, 255, 255, 0.12);
-                        padding: 5px 6px;
-                        box-shadow: 0 16px 36px -10px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.14);
-                        box-sizing: border-box;
-                        max-width: 100%;
-                        overflow-x: auto;
-                        overflow-y: hidden;
-                        white-space: nowrap;
-                        flex-wrap: nowrap !important;
-                        scrollbar-width: none;
-                        -ms-overflow-style: none;
-                        -webkit-overflow-scrolling: touch;
-                        scroll-behavior: smooth;
+                    .admin-subtab-bar,
+                    #admin-provider-subtabs-bar {
+                        display: flex !important;
+                        width: 100% !important;
+                        max-width: 540px !important;
+                        margin: 0 auto !important;
+                        background: rgba(13, 17, 28, 0.85) !important;
+                        backdrop-filter: blur(24px) saturate(190%) !important;
+                        -webkit-backdrop-filter: blur(24px) saturate(190%) !important;
+                        border-radius: 13px !important;
+                        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+                        padding: 3.5px !important;
+                        gap: 3px !important;
+                        box-shadow: 0 16px 36px -10px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
+                        box-sizing: border-box !important;
+                        overflow: hidden !important;
                     }
                     .admin-subtab-bar::-webkit-scrollbar {
                         display: none;
                     }
-                    .admin-subtab-btn {
-                        background: transparent;
-                        color: var(--text-secondary);
-                        border: 1px solid transparent;
-                        border-radius: 10px;
-                        padding: 8px 16px;
-                        font-size: 12.5px;
-                        font-weight: 700;
-                        display: inline-flex;
-                        align-items: center;
-                        justify-content: center;
-                        gap: 7px;
-                        cursor: pointer;
-                        transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-                        white-space: nowrap;
-                        user-select: none;
-                        flex-shrink: 0 !important;
+                    .admin-subtab-bar .admin-subtab-btn,
+                    #admin-provider-subtabs-bar .admin-subtab-btn {
+                        flex: 1 1 0% !important;
+                        width: 25% !important;
+                        min-width: 0 !important;
+                        max-width: 25% !important;
+                        background: transparent !important;
+                        color: var(--text-secondary) !important;
+                        border: 1px solid transparent !important;
+                        border-radius: 10px !important;
+                        padding: 8px 4px !important;
+                        font-size: 12px !important;
+                        font-weight: 700 !important;
+                        display: inline-flex !important;
+                        align-items: center !important;
+                        justify-content: center !important;
+                        gap: 6px !important;
+                        cursor: pointer !important;
+                        transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+                        white-space: nowrap !important;
+                        user-select: none !important;
+                        box-sizing: border-box !important;
+                        text-align: center !important;
                     }
-                    .admin-subtab-btn:hover:not(.active-admin-subtab) {
-                        color: #ffffff;
-                        background: rgba(255, 255, 255, 0.06);
-                        border-color: rgba(255, 255, 255, 0.1);
+                    .admin-subtab-bar .admin-subtab-btn:hover:not(.active-admin-subtab),
+                    #admin-provider-subtabs-bar .admin-subtab-btn:hover:not(.active-admin-subtab) {
+                        color: #ffffff !important;
+                        background: rgba(255, 255, 255, 0.06) !important;
                     }
-                    .admin-subtab-btn.active-admin-subtab {
+                    .admin-subtab-bar .admin-subtab-btn.active-admin-subtab,
+                    #admin-provider-subtabs-bar .admin-subtab-btn.active-admin-subtab {
                         background: linear-gradient(135deg, rgba(139, 92, 246, 0.28), rgba(56, 189, 248, 0.18)) !important;
                         color: #ffffff !important;
                         border: 1px solid rgba(139, 92, 246, 0.5) !important;
                         box-shadow: 0 4px 16px rgba(139, 92, 246, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
                     }
 
-                    .subtab-text-full {
-                        display: inline;
-                    }
-                    .subtab-text-short {
-                        display: none;
-                    }
-
-                    @media (max-width: 720px) {
+                    @media (max-width: 640px) {
                         .admin-subtab-container {
-                            width: 100% !important;
-                            justify-content: center !important;
-                            padding: 0 4px !important;
+                            padding: 0 !important;
                             margin-bottom: 14px !important;
-                            overflow: visible !important;
                         }
-                        .admin-subtab-bar {
-                            width: 100% !important;
-                            display: flex !important;
-                            gap: 3px !important;
-                            padding: 3px !important;
-                            box-sizing: border-box !important;
+                        .admin-subtab-bar,
+                        #admin-provider-subtabs-bar {
+                            max-width: 100% !important;
                             border-radius: 12px !important;
-                            overflow: hidden !important;
-                            justify-content: space-between !important;
+                            padding: 3px !important;
+                            gap: 2.5px !important;
                         }
-                        .admin-subtab-btn {
-                            flex: 1 1 25% !important;
-                            min-width: 0 !important;
-                            padding: 7px 4px !important;
+                        .admin-subtab-bar .admin-subtab-btn,
+                        #admin-provider-subtabs-bar .admin-subtab-btn {
+                            padding: 7px 2px !important;
                             font-size: 11.5px !important;
-                            font-weight: 700 !important;
-                            gap: 4px !important;
+                            gap: 3px !important;
                             border-radius: 9px !important;
-                            justify-content: center !important;
-                            text-align: center !important;
-                        }
-                        .subtab-text-full {
-                            display: none !important;
-                        }
-                        .subtab-text-short {
-                            display: inline !important;
                         }
                     }
 
-                    @media (max-width: 480px) {
-                        .admin-subtab-btn {
-                            padding: 6px 3px !important;
-                            font-size: 11px !important;
-                            gap: 3px !important;
+                    @media (max-width: 380px) {
+                        .admin-subtab-bar .admin-subtab-btn,
+                        #admin-provider-subtabs-bar .admin-subtab-btn {
+                            font-size: 10.5px !important;
+                            padding: 6px 1px !important;
+                            gap: 2px !important;
                         }
                     }
 
@@ -5159,71 +5136,6 @@
                        PROVIDER MANAGEMENT HUB - COMPREHENSIVE RESPONSIVE SUITE
                        ======================================================== */
                     
-                    /* 1. Sub-Navigation Bar Responsive Flow */
-                    @media (max-width: 900px) and (min-width: 721px) {
-                        .admin-subtab-container {
-                            width: 100% !important;
-                            justify-content: center !important;
-                            padding: 0 4px !important;
-                            margin-bottom: 14px !important;
-                        }
-                        .admin-subtab-bar {
-                            display: inline-flex !important;
-                            padding: 4px 6px !important;
-                            gap: 4px !important;
-                        }
-                        .admin-subtab-btn {
-                            padding: 6px 12px !important;
-                            font-size: 11.5px !important;
-                            gap: 5px !important;
-                        }
-                    }
-
-                    @media (max-width: 720px) {
-                        .admin-subtab-container {
-                            width: 100% !important;
-                            justify-content: center !important;
-                            padding: 0 !important;
-                            margin-bottom: 14px !important;
-                            overflow: visible !important;
-                        }
-                        .admin-subtab-bar {
-                            width: 100% !important;
-                            display: flex !important;
-                            gap: 3px !important;
-                            padding: 3px !important;
-                            box-sizing: border-box !important;
-                            border-radius: 12px !important;
-                            overflow: hidden !important;
-                            justify-content: space-between !important;
-                        }
-                        .admin-subtab-btn {
-                            flex: 1 1 25% !important;
-                            min-width: 0 !important;
-                            padding: 7px 3px !important;
-                            font-size: 11.5px !important;
-                            font-weight: 700 !important;
-                            gap: 3px !important;
-                            border-radius: 9px !important;
-                            justify-content: center !important;
-                            text-align: center !important;
-                            white-space: nowrap !important;
-                        }
-                        .subtab-text-full {
-                            display: none !important;
-                        }
-                        .subtab-text-short {
-                            display: inline !important;
-                        }
-                    }
-
-                    @media (max-width: 380px) {
-                        .admin-subtab-btn {
-                            font-size: 10px !important;
-                            padding: 6px 2px !important;
-                            gap: 2px !important;
-                        }
-                    }
 
                     /* 2. Global Provider Hub Card Adjustments */
                     @media (max-width: 768px) {
@@ -5680,6 +5592,55 @@
                         .cd-terminal-box {
                             padding: 10px !important;
                             font-size: 11px !important;
+                        }
+                    }
+
+                    /* Upstream Sync Hub Responsive Styles */
+                    .upstream-sync-table {
+                        width: 100%;
+                        border-collapse: collapse;
+                        font-size: 12.5px;
+                        text-align: left;
+                    }
+                    .upstream-sync-table th,
+                    .upstream-sync-table td {
+                        padding: 10px 12px;
+                    }
+                    .upstream-mobile-file-sub {
+                        display: none;
+                        font-family: 'JetBrains Mono', Consolas, monospace;
+                        font-size: 10.5px;
+                        color: var(--text-muted);
+                        margin-top: 2px;
+                        word-break: break-all;
+                    }
+
+                    @media (max-width: 680px) {
+                        .upstream-col-file {
+                            display: none !important;
+                        }
+                        .upstream-mobile-file-sub {
+                            display: block !important;
+                        }
+                        #upstream-sync-table-container {
+                            padding: 8px 6px !important;
+                        }
+                        .upstream-sync-table th,
+                        .upstream-sync-table td {
+                            padding: 9px 8px !important;
+                        }
+                        .upstream-header-actions {
+                            width: 100% !important;
+                            flex-direction: column !important;
+                            align-items: stretch !important;
+                        }
+                        #upstream-repo-select {
+                            min-width: 0 !important;
+                            width: 100% !important;
+                        }
+                        .upstream-header-actions button {
+                            width: 100% !important;
+                            justify-content: center !important;
                         }
                     }
 
@@ -6570,16 +6531,16 @@
                     <div class="admin-subtab-container">
                         <div class="admin-subtab-bar" id="admin-provider-subtabs-bar">
                             <button id="admin-nav-fleet" class="pill-btn admin-subtab-btn active-admin-subtab" onclick="switchProviderSubTab('admin-sub-fleet', this)" title="Scraper Fleet & Priorities">
-                                <span>⚡</span> <span class="subtab-text-full">Scraper Fleet</span><span class="subtab-text-short">Fleet</span>
+                                <span>⚡</span> <span>Fleet</span>
                             </button>
                             <button id="admin-nav-editor" class="pill-btn admin-subtab-btn" onclick="switchProviderSubTab('admin-sub-editor', this)" title="Code Studio & Overrides">
-                                <span>📝</span> <span class="subtab-text-full">Code Studio & Overrides</span><span class="subtab-text-short">Studio</span>
+                                <span>📝</span> <span>Studio</span>
                             </button>
                             <button id="admin-nav-tester" class="pill-btn admin-subtab-btn" onclick="switchProviderSubTab('admin-sub-tester', this)" title="Live Diagnostics & Lab">
-                                <span>🧪</span> <span class="subtab-text-full">Diagnostics & Lab</span><span class="subtab-text-short">Lab</span>
+                                <span>🧪</span> <span>Lab</span>
                             </button>
                             <button id="admin-nav-cd" class="pill-btn admin-subtab-btn" onclick="switchProviderSubTab('admin-sub-cd', this)" title="CD & Hermes Deployment">
-                                <span>🚀</span> <span class="subtab-text-full">CD & Deployment</span><span class="subtab-text-short">Deploy</span>
+                                <span>🚀</span> <span>Deploy</span>
                             </button>
                         </div>
                     </div>
@@ -6965,7 +6926,7 @@
                             background: rgba(8, 11, 20, 0.7);
                             border: 1px solid rgba(255, 255, 255, 0.08);
                             border-radius: 12px;
-                            padding: 2.5px;
+                            padding: 3px 3.5px;
                             gap: 2px;
                             box-sizing: border-box;
                             width: 100% !important;
@@ -6973,13 +6934,14 @@
                             overflow: hidden;
                         }
                         .fleet-filter-btn {
-                            flex: 1 1 auto !important;
+                            flex: 1 1 0px !important;
+                            min-width: 0 !important;
                             display: inline-flex;
                             align-items: center;
                             justify-content: center;
-                            gap: 2.5px;
-                            padding: 5px 3px;
-                            border-radius: 9px;
+                            gap: 2px;
+                            padding: 5px 2px;
+                            border-radius: 8px;
                             font-size: 11px;
                             font-weight: 700;
                             border: 1px solid transparent;
@@ -6999,7 +6961,7 @@
                             background: rgba(139, 92, 246, 0.25) !important;
                             color: #c4b5fd !important;
                             border-color: rgba(139, 92, 246, 0.45) !important;
-                            box-shadow: 0 2px 8px rgba(139, 92, 246, 0.2) !important;
+                            box-shadow: inset 0 0 0 1px rgba(139, 92, 246, 0.25) !important;
                         }
                         .filter-count-badge {
                             display: inline-flex;
@@ -7108,52 +7070,81 @@
                         }
                         .fleet-actions-group {
                             display: flex;
-                            gap: 8px;
+                            gap: 6px;
                             align-items: center;
                             flex-wrap: wrap;
                         }
                         #fleet-count-badge {
+                            display: inline-flex;
+                            align-items: center;
+                            justify-content: center;
+                            height: 30px;
+                            padding: 0 11px;
                             background: rgba(139, 92, 246, 0.15);
                             border: 1px solid rgba(139, 92, 246, 0.35);
                             color: #c084fc;
                             font-weight: 700;
                             font-size: 11.5px;
-                            padding: 6px 11px;
                             border-radius: 8px;
                             white-space: nowrap;
+                            box-sizing: border-box;
+                            line-height: 1;
                         }
                         .fleet-actions-group .pill-btn {
-                            border-radius: 9px;
-                            height: 32px;
-                            padding: 0 13px;
-                            font-size: 12px;
-                            font-weight: 700;
                             display: inline-flex;
                             align-items: center;
-                            gap: 6px;
+                            justify-content: center;
+                            height: 30px;
+                            padding: 0 11px;
+                            font-size: 11.5px;
+                            font-weight: 700;
+                            border-radius: 8px;
+                            gap: 5px;
                             box-sizing: border-box;
+                            line-height: 1;
+                            box-shadow: none;
+                        }
+                        .fleet-actions-group .pill-btn.pill-btn-emerald {
+                            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);
                         }
 
                         @media (max-width: 640px) {
                             .fleet-toolbar-box {
                                 padding: 12px 10px;
                             }
+                            #fleet-count-badge {
+                                height: 28px;
+                                padding: 0 9px;
+                                font-size: 11px;
+                                border-radius: 7px;
+                            }
+                            .fleet-actions-group .pill-btn {
+                                height: 28px;
+                                padding: 0 9px;
+                                font-size: 11px;
+                                border-radius: 7px;
+                                gap: 4px;
+                            }
                             .cat-label-full { display: none; }
                             .cat-label-short { display: inline; }
                             .fleet-segmented-bar {
-                                padding: 2px;
+                                padding: 2.5px 3.5px;
                                 gap: 2px;
+                                border-radius: 11px;
                             }
                             .fleet-filter-btn {
-                                padding: 5px 2px;
-                                font-size: 10.5px;
-                                gap: 2px;
+                                flex: 1 1 0px !important;
+                                min-width: 0 !important;
+                                padding: 4.5px 1px;
+                                font-size: 10px;
+                                gap: 1.5px;
+                                border-radius: 7px;
                             }
                             .filter-count-badge {
-                                min-width: 13px;
-                                height: 13px;
-                                font-size: 8.5px;
-                                padding: 0 2px;
+                                min-width: 12px;
+                                height: 12px;
+                                font-size: 8px;
+                                padding: 0 1.5px;
                             }
                         }
 
@@ -7164,7 +7155,7 @@
                                 gap: 9px;
                             }
                             .fleet-segmented-bar {
-                                padding: 2px;
+                                padding: 2.5px 3px;
                                 gap: 1.5px;
                                 border-radius: 10px;
                             }
@@ -7187,16 +7178,16 @@
                                 width: 100% !important;
                             }
                             .fleet-filter-btn {
-                                font-size: 10px;
-                                padding: 4.5px 2px;
-                                gap: 1.5px;
-                                border-radius: 8px;
+                                font-size: 9.5px;
+                                padding: 4px 1px;
+                                gap: 1px;
+                                border-radius: 6.5px;
                             }
                             .filter-count-badge {
-                                font-size: 8px;
-                                min-width: 12px;
-                                height: 12px;
-                                padding: 0 1.5px;
+                                font-size: 7.5px;
+                                min-width: 11px;
+                                height: 11px;
+                                padding: 0 1px;
                                 border-radius: 3px;
                             }
                         }
@@ -7240,8 +7231,8 @@
                                 <span>🌸 <span class="cat-label-full">Anime</span><span class="cat-label-short">Anime</span></span> <span class="filter-count-badge" id="fleet-cnt-anime">5</span>
                             </button>
                             <button class="fleet-filter-btn" id="fleet-btn-hi" onclick="setFleetCategoryFilter('hi', this)">
-                                <span style="display:inline-flex; align-items:center; gap:3px; min-width:0; overflow:hidden;">
-                                    <svg width="12" height="9" viewBox="0 0 24 16" style="border-radius: 2px; flex-shrink: 0; box-shadow: 0 0 1px rgba(0,0,0,0.6);"><rect width="24" height="5.33" fill="#FF9933"/><rect y="5.33" width="24" height="5.33" fill="#FFFFFF"/><rect y="10.67" width="24" height="5.33" fill="#138808"/><circle cx="12" cy="8" r="2.2" fill="#000080"/><circle cx="12" cy="8" r="1.7" fill="#FFFFFF"/><circle cx="12" cy="8" r="0.7" fill="#000080"/></svg>
+                                <span style="display:inline-flex; align-items:center; gap:2px; min-width:0; overflow:hidden;">
+                                    <svg width="11" height="8" viewBox="0 0 24 16" style="border-radius: 1.5px; flex-shrink: 0; box-shadow: 0 0 1px rgba(0,0,0,0.6);"><rect width="24" height="5.33" fill="#FF9933"/><rect y="5.33" width="24" height="5.33" fill="#FFFFFF"/><rect y="10.67" width="24" height="5.33" fill="#138808"/><circle cx="12" cy="8" r="2.2" fill="#000080"/><circle cx="12" cy="8" r="1.7" fill="#FFFFFF"/><circle cx="12" cy="8" r="0.7" fill="#000080"/></svg>
                                     <span class="cat-label-full">Hindi / Multi</span><span class="cat-label-short">Hindi</span>
                                 </span>
                                 <span class="filter-count-badge" id="fleet-cnt-hi">15</span>
@@ -7526,7 +7517,7 @@
                                     <p style="margin: 2px 0 0 0; color: var(--text-muted); font-size: 11.5px;">Compare and sync scrapers directly from GitHub repository fleets</p>
                                 </div>
                             </div>
-                            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                            <div class="upstream-header-actions" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                                 <select id="upstream-repo-select" class="cd-input" style="padding: 6px 14px; font-size: 12.5px; height: 38px; min-width: 250px; background: rgba(0,0,0,0.4);" onchange="checkUpstreamSync()">
                                     <option value="cb-providers" selected>🌶️ CB Providers (SA7ANI/cb-providers)</option>
                                     <option value="yoruix">⚡ Yoruix / Official Nuvio</option>
@@ -14075,27 +14066,30 @@
                 if (data.success && data.scrapers) {
                     container.innerHTML = `
                     <div style="overflow-x: auto;">
-                        <table style="width: 100%; border-collapse: collapse; font-size: 12.5px; text-align: left;">
+                        <table class="upstream-sync-table">
                             <thead>
                                 <tr style="border-bottom: 1px solid rgba(255,255,255,0.08); color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">
-                                    <th style="padding: 10px 12px;">Scraper</th>
-                                    <th style="padding: 10px 12px;">File</th>
-                                    <th style="padding: 10px 12px;">Status</th>
-                                    <th style="padding: 10px 12px; text-align: right;">Action</th>
+                                    <th>Scraper</th>
+                                    <th class="upstream-col-file">File</th>
+                                    <th>Status</th>
+                                    <th style="text-align: right;">Action</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 ${data.scrapers.map(s => `
                                 <tr style="border-bottom: 1px solid rgba(255,255,255,0.04); transition: background 0.15s ease;" onmouseenter="this.style.background='rgba(255,255,255,0.03)'" onmouseleave="this.style.background='transparent'">
-                                    <td style="padding: 11px 12px; font-weight: 700; color: #fff;">${s.name}</td>
-                                    <td style="padding: 11px 12px; font-family: 'JetBrains Mono', Consolas, monospace; font-size: 11.5px; color: var(--text-muted);">${s.filename}</td>
-                                    <td style="padding: 11px 12px;">
-                                        <span class="tag-pill-badge" style="background: ${s.isInstalled ? 'rgba(52,211,153,0.12)' : 'rgba(139,92,246,0.12)'}; border: 1px solid ${s.isInstalled ? 'rgba(52,211,153,0.3)' : 'rgba(139,92,246,0.3)'}; color: ${s.isInstalled ? '#34d399' : '#c084fc'}; font-size: 11px; font-weight: 700;">
-                                            ${s.isInstalled ? 'Installed' : 'New Available'}
+                                    <td>
+                                        <div style="font-weight: 700; color: #fff; font-size: 13px;">${s.name}</div>
+                                        <div class="upstream-mobile-file-sub">${s.filename}</div>
+                                    </td>
+                                    <td class="upstream-col-file" style="font-family: 'JetBrains Mono', Consolas, monospace; font-size: 11.5px; color: var(--text-muted);">${s.filename}</td>
+                                    <td style="white-space: nowrap;">
+                                        <span class="tag-pill-badge" style="background: ${s.isInstalled ? 'rgba(52,211,153,0.12)' : 'rgba(139,92,246,0.12)'}; border: 1px solid ${s.isInstalled ? 'rgba(52,211,153,0.3)' : 'rgba(139,92,246,0.3)'}; color: ${s.isInstalled ? '#34d399' : '#c084fc'}; font-size: 10.5px; font-weight: 700; padding: 2px 7px;">
+                                            ${s.isInstalled ? 'Installed' : 'New'}
                                         </span>
                                     </td>
-                                    <td style="padding: 11px 12px; text-align: right;">
-                                        <button class="pill-btn ${s.isInstalled ? 'pill-btn-glass' : 'pill-btn-emerald'}" onclick="importUpstreamScraper('${s.name}', '${s.filename}', '${s.upstreamUrl}')" style="padding: 5px 14px; font-size: 11.5px; font-weight: 700;">
+                                    <td style="text-align: right; white-space: nowrap;">
+                                        <button class="pill-btn ${s.isInstalled ? 'pill-btn-glass' : 'pill-btn-emerald'}" onclick="importUpstreamScraper('${s.name}', '${s.filename}', '${s.upstreamUrl}')" style="padding: 5px 12px; font-size: 11px; font-weight: 700;">
                                             ${s.isInstalled ? '🔄 Re-Sync' : '⬇️ Import'}
                                         </button>
                                     </td>
