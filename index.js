@@ -1728,7 +1728,7 @@ app.post('/api/telemetry/reset-quarantine', handleResetQuarantineState);
 app.post('/api/admin/reset-quarantine', handleResetQuarantineState);
 
 // Provider Ecosystem Local File & Git APIs
-app.get('/api/admin/provider-code', (req, res) => {
+app.get('/api/admin/provider-code', async (req, res) => {
     if (!checkDiagnosticsAuth(req)) return res.status(401).json({ success: false, error: 'Unauthorized' });
     const { filename } = req.query;
     if (!filename) return res.status(400).json({ success: false, error: 'filename missing' });
@@ -1741,6 +1741,14 @@ app.get('/api/admin/provider-code', (req, res) => {
                 return res.json({ success: true, code });
             }
         }
+        // Cloud fallback for Vercel/serverless
+        try {
+            const rawUrl = `https://raw.githubusercontent.com/SA7ANI/cb-providers/main/${filename}`;
+            const rawRes = await axios.get(rawUrl, { timeout: 8000, responseType: 'text' });
+            if (rawRes.data) {
+                return res.json({ success: true, code: rawRes.data });
+            }
+        } catch (_) {}
         res.json({ success: true, code: '// New Provider Script\n' });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
@@ -1970,6 +1978,14 @@ app.post('/api/admin/build-repo', (req, res) => {
         const path = require('path');
         const dirs = getCbProviderRepoDirs();
         const repoPath = dirs[0] || path.join(__dirname, '..', 'cb-providers');
+        const hasLocalGit = fs.existsSync(path.join(repoPath, '.git'));
+
+        if (!hasLocalGit) {
+            return res.json({
+                success: true,
+                output: '⚡ Cloud Serverless Mode (Vercel): Build & Hermes transpilation are handled automatically via GitHub Actions CD on push to https://github.com/SA7ANI/cb-providers.'
+            });
+        }
 
         const output = execSync('node build.js --transpile', { cwd: repoPath, stdio: 'pipe', timeout: 35000 }).toString();
         res.json({ success: true, output });

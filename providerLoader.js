@@ -328,7 +328,20 @@ class ProviderLoader {
                 if (fs.existsSync(localManifestPath)) {
                     manifest = JSON.parse(fs.readFileSync(localManifestPath, 'utf8'));
                 } else {
-                    manifest = { providers: [] };
+                    // Cloud fallback (e.g. Vercel): Fetch live manifest from SA7ANI/cb-providers GitHub repository
+                    console.log(`[ProviderLoader] Local directory not found on cloud; fetching live manifest from SA7ANI/cb-providers GitHub raw`);
+                    try {
+                        const cloudRes = await fetchWithRetry('https://raw.githubusercontent.com/SA7ANI/cb-providers/main/manifest.json', {
+                            timeout: 8000,
+                            httpAgent,
+                            httpsAgent
+                        });
+                        manifest = cloudRes.data;
+                        baseUrl = 'https://raw.githubusercontent.com/SA7ANI/cb-providers/main';
+                    } catch (e) {
+                        console.error('[ProviderLoader] Cloud fallback manifest fetch failed:', e.message);
+                        manifest = { providers: [] };
+                    }
                 }
             } else {
                 console.log(`[ProviderLoader] Fetching manifest from ${manifestUrl}`);
@@ -375,7 +388,19 @@ class ProviderLoader {
                                 if (fs.existsSync(localFilePath)) {
                                     scriptCode = fs.readFileSync(localFilePath, 'utf8');
                                 } else {
-                                    throw new Error(`Local provider file not found: ${scraper.filename}`);
+                                    // Cloud fallback for scraper script: Fetch directly from GitHub raw
+                                    const cloudScriptUrl = `https://raw.githubusercontent.com/SA7ANI/cb-providers/main/${scraper.filename}`;
+                                    if (this.scriptCache.has(cloudScriptUrl)) {
+                                        scriptCode = this.scriptCache.get(cloudScriptUrl);
+                                    } else {
+                                        const scriptRes = await fetchWithRetry(cloudScriptUrl, {
+                                            timeout: 8000,
+                                            httpAgent,
+                                            httpsAgent
+                                        });
+                                        scriptCode = scriptRes.data;
+                                        this.scriptCache.set(cloudScriptUrl, scriptCode);
+                                    }
                                 }
                             } else if (this.scriptCache.has(scriptUrl)) {
                                 scriptCode = this.scriptCache.get(scriptUrl);
