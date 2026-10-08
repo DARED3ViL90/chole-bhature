@@ -1,0 +1,17 @@
+services:
+  chole-bhature:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: chole-bhature-chole-bhature
+    container_name: chole-bhature
+    restart: unless-stopped
+    environment:
+      PORT: 7000
+      NODE_ENV: production
+    networks:
+      - pangolin_frontend
+
+networks:
+  pangolin_frontend:
+    external: true
