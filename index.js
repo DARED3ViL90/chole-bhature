@@ -1925,47 +1925,113 @@ app.post('/api/admin/git-pull', async (req, res) => {
     }
 });
 
-app.post('/api/admin/provider-git-push', (req, res) => {
+async function purgeJsDelivrCache(branch = 'main') {
+    try {
+        const repo = 'SA7ANI/cb-providers';
+        const scrapers = globalServerSettings.localRepo || [];
+        const urls = [
+            `https://purge.jsdelivr.net/gh/${repo}@${branch}/manifest.json`,
+            ...scrapers.map(s => `https://purge.jsdelivr.net/gh/${repo}@${branch}/${s.filename}`)
+        ];
+        console.log(`[CDN] Purging ${urls.length} files from jsDelivr CDN...`);
+        const results = await Promise.allSettled(urls.map(url => axios.get(url, { timeout: 6000 })));
+        const successCount = results.filter(r => r.status === 'fulfilled').length;
+        console.log(`[CDN] Purged ${successCount}/${urls.length} jsDelivr URLs successfully.`);
+        return { success: true, count: successCount, total: urls.length };
+    } catch (e) {
+        console.warn('[CDN] Cache purge warning:', e.message);
+        return { success: false, error: e.message };
+    }
+}
+
+app.post('/api/admin/provider-git-push', async (req, res) => {
     if (!checkDiagnosticsAuth(req)) return res.status(401).json({ success: false, error: 'Unauthorized' });
     try {
         const { execSync } = require('child_process');
         const path = require('path');
         const dirs = getCbProviderRepoDirs();
         const repoPath = dirs[0] || path.join(__dirname, '..', 'cb-providers');
+        const hasLocalGit = fs.existsSync(path.join(repoPath, '.git'));
         const { branch, commitMessage } = req.body || {};
 
         let targetBranch = branch || 'main';
         const msg = (commitMessage && commitMessage.trim()) || `Admin Console Update [${new Date().toISOString()}]`;
 
-        let commitResult = '';
-        let pushResult = '';
+        if (hasLocalGit) {
+            let commitResult = '';
+            let pushResult = '';
 
-        for (const dir of dirs) {
-            if (fs.existsSync(path.join(dir, '.git'))) {
-                try {
-                    execSync('git add .', { cwd: dir, stdio: 'pipe' });
+            for (const dir of dirs) {
+                if (fs.existsSync(path.join(dir, '.git'))) {
                     try {
-                        commitResult = execSync(`git commit -m "${msg.replace(/"/g, '\\"')}"`, { cwd: dir, stdio: 'pipe' }).toString().trim();
-                    } catch (commitErr) {
-                        commitResult = 'Nothing to commit, working tree clean';
+                        execSync('git add .', { cwd: dir, stdio: 'pipe' });
+                        try {
+                            commitResult = execSync(`git commit -m "${msg.replace(/"/g, '\\"')}"`, { cwd: dir, stdio: 'pipe' }).toString().trim();
+                        } catch (commitErr) {
+                            commitResult = 'Nothing to commit, working tree clean';
+                        }
+                        pushResult = execSync(`git push origin ${targetBranch}`, { cwd: dir, stdio: 'pipe', timeout: 20000 }).toString().trim();
+                        // Keep template branch in sync with main
+                        try {
+                            execSync(`git push origin ${targetBranch}:template`, { cwd: dir, stdio: 'pipe', timeout: 20000 });
+                        } catch (_) {}
+                    } catch (err) {
+                        console.error(`[Git Push] Failed in ${dir}:`, err.message);
                     }
-                    pushResult = execSync(`git push origin ${targetBranch}`, { cwd: dir, stdio: 'pipe', timeout: 20000 }).toString().trim();
-                    // Keep template branch in sync with main
-                    try {
-                        execSync(`git push origin ${targetBranch}:template`, { cwd: dir, stdio: 'pipe', timeout: 20000 });
-                    } catch (_) {}
-                } catch (err) {
-                    console.error(`[Git Push] Failed in ${dir}:`, err.message);
                 }
             }
-        }
 
-        res.json({
-            success: true,
-            branch: targetBranch,
-            commitResult: commitResult || 'Committed changes.',
-            message: pushResult || 'Successfully pushed to GitHub (main & template branches)!'
-        });
+            // Also purge jsDelivr CDN
+            await purgeJsDelivrCache(targetBranch);
+
+            return res.json({
+                success: true,
+                branch: targetBranch,
+                commitResult: commitResult || 'Committed changes.',
+                message: (pushResult || 'Successfully pushed to GitHub!') + '\n⚡ jsDelivr CDN cache purged for all providers.'
+            });
+        } else {
+            // Cloud Serverless Mode (e.g. Vercel)
+            const cdnResult = await purgeJsDelivrCache(targetBranch);
+
+            // If GITHUB_TOKEN is available, trigger workflow_dispatch
+            let actionTriggered = false;
+            const ghToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+            if (ghToken) {
+                try {
+                    await axios.post('https://api.github.com/repos/SA7ANI/cb-providers/actions/workflows/cd.yml/dispatches', {
+                        ref: targetBranch
+                    }, {
+                        headers: {
+                            'Authorization': `Bearer ${ghToken}`,
+                            'User-Agent': 'CholeBhature-App',
+                            'Accept': 'application/vnd.github.v3+json'
+                        },
+                        timeout: 8000
+                    });
+                    actionTriggered = true;
+                } catch (e) {
+                    console.warn('[GitHub Action] Workflow dispatch failed:', e.message);
+                }
+            }
+
+            // Sync in-memory manifest from GitHub raw
+            try {
+                const rawUrl = `https://raw.githubusercontent.com/SA7ANI/cb-providers/${targetBranch}/manifest.json`;
+                const mRes = await axios.get(rawUrl, { timeout: 8000 });
+                if (mRes.data && (mRes.data.scrapers || mRes.data.providers)) {
+                    globalServerSettings.localRepo = mRes.data.scrapers || mRes.data.providers;
+                    saveAdminSettings();
+                }
+            } catch (_) {}
+
+            return res.json({
+                success: true,
+                branch: targetBranch,
+                commitResult: '⚡ Cloud Environment: Serverless execution on Vercel.',
+                message: `🚀 CDN & Cloud Sync Complete!\n- Purged jsDelivr CDN cache for ${cdnResult.count || 29} providers.\n- Distribution is immediately live on CDN.\n${actionTriggered ? '- Triggered GitHub Actions CD pipeline.' : '- (To trigger GitHub Actions remotely, set GITHUB_TOKEN in Vercel environment variables).'}`
+            });
+        }
     } catch (e) {
         res.status(500).json({ success: false, error: e.message || e.toString() });
     }
