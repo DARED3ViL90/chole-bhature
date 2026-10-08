@@ -23,6 +23,35 @@ const TMDB_API_KEYS = [
     'b025d23315a6b0c266cc6cb221a68134'
 ];
 
+const imdbToTmdbCache = new Map();
+
+async function resolveImdbToTmdbId(imdbId, type = 'tv') {
+    if (imdbToTmdbCache.has(imdbId)) return imdbToTmdbCache.get(imdbId);
+    for (const key of TMDB_API_KEYS) {
+        try {
+            const findUrl = `https://api.themoviedb.org/3/find/${imdbId}?api_key=${key}&external_source=imdb_id`;
+            const res = await axios.get(findUrl, {
+                timeout: 8000,
+                httpAgent,
+                httpsAgent,
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                    'Accept': 'application/json'
+                }
+            });
+            if (res.data) {
+                const results = (type === 'tv' || type === 'series') ? res.data.tv_results : res.data.movie_results;
+                const match = (results && results[0]) || (res.data.tv_results && res.data.tv_results[0]) || (res.data.movie_results && res.data.movie_results[0]);
+                if (match && match.id) {
+                    imdbToTmdbCache.set(imdbId, match.id);
+                    return match.id;
+                }
+            }
+        } catch (e) {}
+    }
+    return null;
+}
+
 function getTmdbNormalizedKey(rawUrl) {
     try {
         const u = new URL(rawUrl);
@@ -34,6 +63,16 @@ function getTmdbNormalizedKey(rawUrl) {
 }
 
 async function fetchTmdbWithFallback(rawUrl) {
+    // Automatically translate IMDb IDs (tt...) in /tv/ or /movie/ routes to numeric TMDB IDs
+    const imdbMatch = rawUrl.match(/\/(tv|movie)\/(tt\d+)/);
+    if (imdbMatch) {
+        const [_, mediaType, imdbId] = imdbMatch;
+        const numericId = await resolveImdbToTmdbId(imdbId, mediaType);
+        if (numericId) {
+            rawUrl = rawUrl.replace(`/${mediaType}/${imdbId}`, `/${mediaType}/${numericId}`);
+        }
+    }
+
     const normKey = getTmdbNormalizedKey(rawUrl);
     if (tmdbCache.has(normKey)) {
         return tmdbCache.get(normKey);
@@ -76,6 +115,42 @@ async function fetchTmdbWithFallback(rawUrl) {
                 // try next key
             }
         }
+
+        // Fallback to Cinemeta if TMDB fails or is blocked for an IMDb ID
+        const imdbIdInUrl = rawUrl.match(/(tt\d+)/)?.[1];
+        if (imdbIdInUrl) {
+            try {
+                if (rawUrl.includes('/external_ids')) {
+                    const fallbackData = { id: 1, imdb_id: imdbIdInUrl };
+                    tmdbCache.set(normKey, fallbackData);
+                    return fallbackData;
+                }
+                const cType = rawUrl.includes('/tv') || rawUrl.includes('/series') ? 'series' : 'movie';
+                const cmRes = await axios.get(`https://v3-cinemeta.strem.io/meta/${cType}/${imdbIdInUrl}.json`, {
+                    timeout: 8000,
+                    httpAgent,
+                    httpsAgent
+                });
+                if (cmRes.data && cmRes.data.meta) {
+                    const m = cmRes.data.meta;
+                    const yearStr = (m.releaseInfo || m.year || '').split('-')[0].trim();
+                    const synthesized = {
+                        id: 1,
+                        name: m.name,
+                        title: m.name,
+                        first_air_date: yearStr ? `${yearStr}-01-01` : '',
+                        release_date: yearStr ? `${yearStr}-01-01` : '',
+                        imdb_id: imdbIdInUrl,
+                        genres: (m.genres || []).map(g => ({ name: g })),
+                        overview: m.description || '',
+                        poster_path: m.poster || ''
+                    };
+                    tmdbCache.set(normKey, synthesized);
+                    tmdbCache.set(rawUrl, synthesized);
+                    return synthesized;
+                }
+            } catch (cmErr) {}
+        }
         return null;
     })();
 
@@ -102,10 +177,11 @@ function createCheerioWrapper() {
 
 function getMirrorUrl(url) {
     if (typeof url === 'string' && url.includes('raw.githubusercontent.com')) {
-        return url
-            .replace('https://raw.githubusercontent.com/', 'https://cdn.jsdelivr.net/gh/')
-            .replace('/refs/heads/', '@')
-            .replace(/\/([^\/]+)\/([^\/]+)\/([^\/]+)\//, '/$1/$2@$3/');
+        const match = url.match(/^https:\/\/raw\.githubusercontent\.com\/([^\/]+)\/([^\/]+)\/(?:refs\/heads\/)?([^\/]+)\/(.+)$/);
+        if (match) {
+            const [, owner, repo, branch, filePath] = match;
+            return `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${branch}/${filePath}`;
+        }
     }
     return null;
 }
@@ -212,10 +288,26 @@ class ProviderLoader {
         this.scriptCache = new Map();
     }
 
+    clearCache(manifestUrl) {
+        if (manifestUrl) {
+            this.providerCache.delete(manifestUrl);
+            for (const key of this.scriptCache.keys()) {
+                if (key.includes(manifestUrl) || key.startsWith('local://')) {
+                    this.scriptCache.delete(key);
+                }
+            }
+        } else {
+            this.providerCache.clear();
+            this.scriptCache.clear();
+        }
+    }
+
     async loadProviders(manifestUrl) {
+        const isLocal = manifestUrl === 'local' || manifestUrl.startsWith('local');
         if (this.providerCache.has(manifestUrl)) {
             const cached = this.providerCache.get(manifestUrl);
-            if (Date.now() - cached.timestamp < 3600000 && Array.isArray(cached.providers) && cached.providers.length > 0) {
+            const ttl = isLocal ? 3000 : 3600000;
+            if (Date.now() - cached.timestamp < ttl && Array.isArray(cached.providers) && cached.providers.length > 0) {
                 return cached.providers;
             }
         }
@@ -225,16 +317,31 @@ class ProviderLoader {
         }
 
         const fetchPromise = (async () => {
-            console.log(`[ProviderLoader] Fetching manifest from ${manifestUrl}`);
-            try {
+            let manifest;
+            let baseUrl = '';
+            const isLocal = manifestUrl === 'local' || manifestUrl.startsWith('local');
+
+            if (isLocal) {
+                const fs = require('fs');
+                const path = require('path');
+                const localManifestPath = path.join(__dirname, '..', 'cb-providers', 'manifest.json');
+                if (fs.existsSync(localManifestPath)) {
+                    manifest = JSON.parse(fs.readFileSync(localManifestPath, 'utf8'));
+                } else {
+                    manifest = { providers: [] };
+                }
+            } else {
+                console.log(`[ProviderLoader] Fetching manifest from ${manifestUrl}`);
                 const manifestRes = await fetchWithRetry(manifestUrl, {
                     timeout: 8000,
                     httpAgent,
                     httpsAgent
                 });
-                const manifest = manifestRes.data;
-                const baseUrl = manifestUrl.substring(0, manifestUrl.lastIndexOf('/'));
+                manifest = manifestRes.data;
+                baseUrl = manifestUrl.substring(0, manifestUrl.lastIndexOf('/'));
+            }
 
+            try {
                 const cw = createCheerioWrapper();
                 const querystring = require('querystring');
                 const crypto = require('crypto');
@@ -247,13 +354,30 @@ class ProviderLoader {
                 const httpsMod = require('https');
                 const httpMod = require('http');
 
-                const scraperTasks = (manifest.scrapers || [])
+                const scraperList = manifest.scrapers || manifest.providers || [];
+                const scraperTasks = scraperList
                     .filter(scraper => scraper && scraper.enabled)
                     .map((scraper) => async () => {
-                        const scriptUrl = `${baseUrl}/${scraper.filename}`;
+                        let scriptUrl = isLocal
+                            ? `local://${scraper.filename}`
+                            : (scraper.filename.startsWith('http') ? scraper.filename : `${baseUrl}/${scraper.filename}`);
+                        
+                        // cbcdn.githack.com is broken/unsupported for codeberg, rewrite to codeberg raw
+                        if (scriptUrl.includes('cbcdn.githack.com')) {
+                            scriptUrl = scriptUrl.replace('https://cbcdn.githack.com/', 'https://codeberg.org/');
+                        }
                         try {
                             let scriptCode = null;
-                            if (this.scriptCache.has(scriptUrl)) {
+                            if (isLocal) {
+                                const fs = require('fs');
+                                const path = require('path');
+                                const localFilePath = path.join(__dirname, '..', 'cb-providers', scraper.filename);
+                                if (fs.existsSync(localFilePath)) {
+                                    scriptCode = fs.readFileSync(localFilePath, 'utf8');
+                                } else {
+                                    throw new Error(`Local provider file not found: ${scraper.filename}`);
+                                }
+                            } else if (this.scriptCache.has(scriptUrl)) {
                                 scriptCode = this.scriptCache.get(scriptUrl);
                             } else {
                                 const scriptRes = await fetchWithRetry(scriptUrl, {
@@ -297,6 +421,7 @@ class ProviderLoader {
                                 const chosenAgent = urlStr.startsWith('http://') ? httpAgent : httpsAgent;
                                 const mergedOptions = {
                                     agent: chosenAgent,
+                                    timeout: 7000,
                                     ...options,
                                     headers: mergedHeaders
                                 };
@@ -399,6 +524,8 @@ class ProviderLoader {
                             customAxios.AxiosError = axios.AxiosError;
                             customAxios.defaults = axiosInstance.defaults;
                             customAxios.interceptors = axiosInstance.interceptors;
+
+                            const cw = Object.assign(cheerio, { default: cheerio });
 
                             const sandbox = {
                                 console: console,
@@ -513,12 +640,14 @@ class ProviderLoader {
     /**
      * Test a single scraper in isolation with custom domain/header overrides
      */
-    async testScraper(manifestUrl, providerName, overrides = {}, mediaId = 'tt0137523', type = 'movie') {
+    async testScraper(manifestUrl, providerName, overrides = {}, mediaId = 'tt0137523', type = 'movie', season = null, episode = null) {
         const startTime = Date.now();
         try {
-            const manifestsToTry = [manifestUrl];
+            const manifestsToTry = [];
+            if (manifestUrl && manifestUrl !== 'local') manifestsToTry.push(manifestUrl);
+            manifestsToTry.push('local');
             const fallbackManifests = [
-                'https://raw.githubusercontent.com/yoru101/Nuvio-Providers/main/manifest.json',
+                'https://raw.githubusercontent.com/yoruix/nuvio-providers/refs/heads/main/manifest.json',
                 'https://raw.githubusercontent.com/phisher98/Nuvio-Providers/main/manifest.json',
                 'https://cdn.jsdelivr.net/gh/D3adlyRocket/All-in-One-Nuvio@main/manifest.json'
             ];
@@ -551,7 +680,9 @@ class ProviderLoader {
                 }
             };
 
-            const streams = await targetProvider.getStreams(mediaId, type, null, null, testConfig);
+            const defaultSeason = (type === 'tv' || type === 'series') ? (season || 1) : season;
+            const defaultEpisode = (type === 'tv' || type === 'series') ? (episode || 1) : episode;
+            const streams = await targetProvider.getStreams(mediaId, type, defaultSeason, defaultEpisode, testConfig);
             const latencyMs = Date.now() - startTime;
             const validStreams = Array.isArray(streams) ? streams : [];
 
@@ -597,7 +728,8 @@ class ProviderLoader {
             'dahmermovies': 'https://dahmermovies.org',
             'movieshunt': 'https://movieshunt.site',
             'ringz': 'https://ringz.to',
-            'dvdplay': 'https://dvdplay.top'
+            'dvdplay': 'https://dvdplay.top',
+            'redflix': 'https://redflix.biz'
         };
         const cleanKey = providerName.toLowerCase().replace(/[^a-z0-9]/g, '');
         const fallbackKnown = KNOWN_DEFAULT_DOMAINS[cleanKey] || '';
@@ -605,7 +737,7 @@ class ProviderLoader {
         try {
             const manifestsToTry = [manifestUrl];
             const fallbackManifests = [
-                'https://raw.githubusercontent.com/yoru101/Nuvio-Providers/main/manifest.json',
+                'https://raw.githubusercontent.com/yoruix/nuvio-providers/refs/heads/main/manifest.json',
                 'https://raw.githubusercontent.com/phisher98/Nuvio-Providers/main/manifest.json',
                 'https://cdn.jsdelivr.net/gh/D3adlyRocket/All-in-One-Nuvio@main/manifest.json'
             ];

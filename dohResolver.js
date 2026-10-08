@@ -199,7 +199,8 @@ const dohHttpsAgent = new https.Agent({
     maxSockets: 100,
     maxFreeSockets: 30,
     timeout: 30000,
-    lookup: dohLookup
+    lookup: dohLookup,
+    rejectUnauthorized: false
 });
 
 module.exports = {

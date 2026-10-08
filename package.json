@@ -12,7 +12,8 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "axios": "^1.19.0",
+    "@vercel/kv": "^3.0.0",
+    "axios": "^1.20.0",
     "cheerio": "^1.2.0",
     "compression": "^1.8.2",
     "crypto-js": "^4.2.0",
