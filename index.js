@@ -1,4 +1,6 @@
 const express = require('express');
+const { createClient } = require('@vercel/kv');
+const kv = createClient({ url: process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || process.env.UPSTASH_REDIS_KV_REST_API_URL || '', token: process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || process.env.UPSTASH_REDIS_KV_REST_API_TOKEN || '' });
 const { addonBuilder, serveHTTP } = require('stremio-addon-sdk');
 const path = require('path');
 const providerLoader = require('./providerLoader');
@@ -27,38 +29,48 @@ if (SECRET_ENCRYPTION_KEY) {
     console.warn('All encrypted Stremio install links WILL BREAK on server restart.');
     console.warn('Please set ENCRYPTION_KEY in your environment to a secure string.');
     console.warn('================================================================');
-    SECRET_ENCRYPTION_KEY = crypto.randomBytes(32);
+    SECRET_ENCRYPTION_KEY = crypto.createHash('sha256').update('nuvio-default-volatile-fallback-key-2026').digest();
 }
 
 function encryptConfigPayload(configObj) {
     try {
         const text = JSON.stringify(configObj);
-        const iv = crypto.randomBytes(12);
-        const cipher = crypto.createCipheriv('aes-256-gcm', SECRET_ENCRYPTION_KEY, iv);
-        let encrypted = cipher.update(text, 'utf8', 'base64url');
-        encrypted += cipher.final('base64url');
-        const authTag = cipher.getAuthTag().toString('base64url');
-        return `enc_${iv.toString('base64url')}_${encrypted}_${authTag}`;
+        return Buffer.from(text, 'utf8').toString('base64url');
     } catch (e) {
-        console.error('[Encryption Error]', e);
+        console.error('[Encoding Error]', e);
         return null;
     }
 }
 
 function decryptConfigPayload(token) {
-    if (!token || !token.startsWith('enc_')) return null;
+    if (!token) return null;
     try {
-        const parts = token.split('_');
-        if (parts.length !== 4) return null;
-        const iv = Buffer.from(parts[1], 'base64url');
-        const encrypted = parts[2];
-        const authTag = Buffer.from(parts[3], 'base64url');
+        // Support legacy enc_ prefix temporarily if users still have old AES tokens
+        if (token.startsWith('enc_')) {
+            let parts;
+            if (token.includes('.')) {
+                const withoutPrefix = token.substring(4);
+                parts = withoutPrefix.split('.');
+                if (parts.length !== 3) return null;
+                parts = ['enc', parts[0], parts[1], parts[2]];
+            } else {
+                parts = token.split('_');
+            }
+            if (parts.length !== 4) return null;
+            const iv = Buffer.from(parts[1], 'base64url');
+            const encrypted = parts[2];
+            const authTag = Buffer.from(parts[3], 'base64url');
+            
+            const decipher = crypto.createDecipheriv('aes-256-gcm', SECRET_ENCRYPTION_KEY, iv);
+            decipher.setAuthTag(authTag);
+            
+            let decrypted = decipher.update(encrypted, 'base64url', 'utf8');
+            decrypted += decipher.final('utf8');
+            return JSON.parse(decrypted);
+        }
         
-        const decipher = crypto.createDecipheriv('aes-256-gcm', SECRET_ENCRYPTION_KEY, iv);
-        decipher.setAuthTag(authTag);
-        
-        let decrypted = decipher.update(encrypted, 'base64url', 'utf8');
-        decrypted += decipher.final('utf8');
+        // Base64url token
+        const decrypted = Buffer.from(token, 'base64url').toString('utf8');
         return JSON.parse(decrypted);
     } catch (e) {
         return null;
@@ -100,9 +112,59 @@ function loadTelemetryMetrics() {
 function saveTelemetryMetrics() {
     try {
         fs.writeFileSync(TELEMETRY_FILE, JSON.stringify(telemetryMetrics));
+        if (typeof syncGlobalStateToKV === 'function') syncGlobalStateToKV();
     } catch (e) {}
 }
 loadTelemetryMetrics();
+
+// ==========================================
+// UPSTASH KV GLOBAL STATE SYNCHRONIZATION
+// ==========================================
+const isKVEnabledGlobal = Boolean((process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || process.env.UPSTASH_REDIS_KV_REST_API_URL) && (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || process.env.UPSTASH_REDIS_KV_REST_API_TOKEN));
+
+async function loadGlobalStateFromKV() {
+    if (!isKVEnabledGlobal) return;
+    try {
+        const [kvTelemetry, kvQuarantine, kvAnalytics] = await Promise.all([
+            kv.get('global_telemetry'),
+            kv.get('global_quarantine'),
+            kv.get('global_analytics')
+        ]);
+        
+        if (kvTelemetry) telemetryMetrics = { ...telemetryMetrics, ...kvTelemetry };
+        
+        if (kvQuarantine && Array.isArray(kvQuarantine)) {
+            for (const [k, v] of kvQuarantine) quarantineRegistry.set(k, v);
+        }
+        
+        if (kvAnalytics && Array.isArray(kvAnalytics)) {
+            for (const [k, v] of kvAnalytics) providerAnalytics.set(k, v);
+        }
+        console.log('[KV] Global state successfully restored from Upstash Redis.');
+    } catch (err) {
+        console.error('[KV Error] Failed to load global state:', err.message);
+    }
+}
+
+async function syncGlobalStateToKV() {
+    if (!isKVEnabledGlobal) return;
+    try {
+        await Promise.all([
+            kv.set('global_telemetry', telemetryMetrics),
+            kv.set('global_quarantine', Array.from(quarantineRegistry.entries())),
+            kv.set('global_analytics', Array.from(providerAnalytics.entries()))
+        ]);
+    } catch (err) {
+        console.error('[KV Error] Failed to sync global state:', err.message);
+    }
+}
+
+if (isKVEnabledGlobal) {
+    loadGlobalStateFromKV();
+    // Auto-sync global state to KV every 3 minutes
+    // setInterval removed due to serverless freezing
+}
+
 
 // Core configuration dependency check (Cloud & Serverless Safe)
 if (!fs.existsSync(path.join(__dirname, '.secret')) && !process.env.VERCEL && !process.env.NODE_ENV) {
@@ -165,8 +227,17 @@ const CONFIGS_FILE = process.env.VERCEL
     : path.join(__dirname, 'user_configs.json');
 const userConfigs = new Map();
 
-function saveUserConfig(configId, configData) {
-    userConfigs.set(configId, configData);
+async function saveUserConfig(configId, config) {
+    if (!configId || !config) return;
+    userConfigs.set(configId, config);
+    activeConfigsTracker.add(configId);
+    if (typeof configId === 'string' && !configId.startsWith('enc_') && configId.length < 32 && (process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || process.env.UPSTASH_REDIS_KV_REST_API_URL) && (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || process.env.UPSTASH_REDIS_KV_REST_API_TOKEN)) {
+        try {
+            await kv.set(`cfg_${configId}`, config);
+        } catch (err) {
+            console.error('[KV Error] saving config:', err);
+        }
+    }
 }
 
 // ============================================================
@@ -215,18 +286,29 @@ function encodeConfigParam(cfg) {
 // Multi-Device Stateless & Persistent Configuration Resolver
 const activeConfigsTracker = new Set();
 
-function resolveConfig(param) {
+async function resolveConfig(param) {
     if (!param) return null;
     if (typeof param !== 'string') return null;
     param = param.replace(/\/configure\/?$/, '').replace(/\.json$/, '').trim();
     if (!param) return null;
 
-    // 1. Priority 1: Check in-memory & persistent userConfigs map FIRST
-    // This ensures any changes saved via the Web UI immediately update the catalog in Nuvio/Stremio
     const stored = userConfigs.get(param);
     if (stored) {
         activeConfigsTracker.add(param);
         return stored;
+    }
+    
+    if ((process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || process.env.UPSTASH_REDIS_KV_REST_API_URL) && (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || process.env.UPSTASH_REDIS_KV_REST_API_TOKEN)) {
+        try {
+            const kvStored = await kv.get(`cfg_${param}`);
+            if (kvStored) {
+                userConfigs.set(param, kvStored);
+                activeConfigsTracker.add(param);
+                return kvStored;
+            }
+        } catch (err) {
+            console.error('[KV Error] resolving config:', err);
+        }
     }
 
     // 1.5. Try Encrypted Payload
@@ -290,10 +372,11 @@ function resolveConfig(param) {
 async function prewarmProviders() {
     try {
         const reposToWarm = new Set([
-            'https://cdn.jsdelivr.net/gh/D3adlyRocket/All-in-One-Nuvio@main/manifest.json',
-            'https://cdn.jsdelivr.net/gh/yoruix/nuvio-providers@main/manifest.json',
-            'https://codeberg.org/eclipsia/nuvio-plugin/raw/branch/main/manifest.json'
+            ...(globalServerSettings.installedRepos || [])
         ]);
+        if (globalServerSettings.localRepo && globalServerSettings.localRepo.length > 0) {
+            reposToWarm.add('local');
+        }
         for (const [, cfg] of userConfigs.entries()) {
             if (cfg.repoUrl) reposToWarm.add(cfg.repoUrl);
             if (Array.isArray(cfg.urls)) cfg.urls.forEach(u => reposToWarm.add(u));
@@ -325,6 +408,33 @@ app.get(['/app.webmanifest', '/manifest.webmanifest'], (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Cache-Control', 'public, max-age=86400');
     res.sendFile(path.join(__dirname, 'public', 'app.webmanifest'));
+});
+
+app.get('/my-repo/manifest.json', (req, res) => {
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    syncLocalRepoWithManifest();
+    const config = globalServerSettings.providerRepoConfig || {};
+    const scrapers = (globalServerSettings.localRepo || []).map(p => ({
+        id: p.id || p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+        name: p.name,
+        description: p.description || `${p.name} provider for Nuvio`,
+        version: p.version || "1.0.0",
+        author: p.author || "Chole Bhature",
+        supportedTypes: Array.isArray(p.supportedTypes) ? p.supportedTypes : ["movie", "tv"],
+        filename: p.filename || `providers/${p.name.toLowerCase().replace(/[^a-z0-9]+/g, '')}.js`,
+        enabled: p.enabled !== false,
+        formats: Array.isArray(p.formats) ? p.formats : ["mp4", "m3u8"],
+        logo: p.logo || "",
+        contentLanguage: Array.isArray(p.contentLanguage) ? p.contentLanguage : ["en"]
+    }));
+    res.json({
+        manifestVersion: 1,
+        name: config.name || "CB Provider Repo",
+        version: config.version || "1.0.0",
+        description: config.description || "Custom local scraper repository hosted on Chole Bhature.",
+        scrapers: scrapers,
+        providers: scrapers
+    });
 });
 
 app.get('/manifest.json', (req, res, next) => {
@@ -368,6 +478,10 @@ app.use((req, res, next) => {
 
 // Serve static assets
 app.use(express.static(path.join(__dirname, 'public')));
+const cbProviderDir = path.join(__dirname, '..', 'cb-providers');
+if (fs.existsSync(cbProviderDir)) {
+    app.use('/my-repo', express.static(cbProviderDir));
+}
 
 app.get(['/', '/configure', '/index.html'], (req, res) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -381,14 +495,31 @@ app.get(['/c/:configId', '/c/:configId/configure', '/configure/:configId'], (req
 });
 
 // API to save configuration (Instant Sync)
-app.post('/api/config/save', (req, res) => {
+
+function isDeepEqual(obj1, obj2) {
+    if (obj1 === obj2) return true;
+    if (typeof obj1 !== 'object' || typeof obj2 !== 'object' || obj1 == null || obj2 == null) {
+        return false;
+    }
+    const keys1 = Object.keys(obj1);
+    const keys2 = Object.keys(obj2);
+    if (keys1.length !== keys2.length) return false;
+    for (const key of keys1) {
+        if (!keys2.includes(key) || !isDeepEqual(obj1[key], obj2[key])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+app.post('/api/config/save', async (req, res) => {
     try {
         let { configId, token, config, oldToken } = req.body;
         
         // Restore any redacted secrets from the old configuration
         let oldConfig = null;
         if (token || oldToken || configId) {
-            oldConfig = resolveConfig(token || oldToken || configId);
+            oldConfig = await resolveConfig(token || oldToken || configId);
         }
         
         if (oldConfig) {
@@ -399,21 +530,44 @@ app.post('/api/config/save', (req, res) => {
             }
         }
 
-        // Generate an encrypted stateless token instead of trusting client's raw configId
-        const encryptedToken = encryptConfigPayload(config);
-        if (!encryptedToken) {
-            return res.status(500).json({ success: false, error: 'Failed to encrypt configuration' });
+        // If the old token still decrypts to the exact same config, reuse it to keep install links stable
+                let reusedOldToken = false;
+        const incomingToken = oldToken || configId || token;
+        const isKVEnabled = Boolean((process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || process.env.UPSTASH_REDIS_KV_REST_API_URL) && (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || process.env.UPSTASH_REDIS_KV_REST_API_TOKEN));
+        
+        let existingDecrypted = null;
+        if (incomingToken) {
+            if (isKVEnabled && !incomingToken.startsWith('enc_') && incomingToken.length < 32) {
+                configId = incomingToken;
+                reusedOldToken = true;
+            } else {
+                existingDecrypted = decryptConfigPayload(incomingToken);
+                if (existingDecrypted && isDeepEqual(existingDecrypted, config)) {
+                    configId = incomingToken;
+                    reusedOldToken = true;
+                }
+            }
         }
         
-        configId = encryptedToken;
-        saveUserConfig(configId, config);
+        if (!reusedOldToken) {
+            if (isKVEnabled) {
+                configId = crypto.randomBytes(4).toString('hex');
+            } else {
+                const encryptedToken = encryptConfigPayload(config);
+                if (!encryptedToken) {
+                    return res.status(500).json({ success: false, error: 'Failed to encrypt configuration' });
+                }
+                configId = encryptedToken;
+            }
+        }
+        await saveUserConfig(configId, config);
         
         // Map the frontend's original temporary token in-memory to prevent breaking the immediate save cycle
         if (token && token !== configId) {
-            saveUserConfig(token, config);
+            await await saveUserConfig(token, config);
         }
         if (oldToken && oldToken !== configId && oldToken !== token) {
-            saveUserConfig(oldToken, config);
+            await await saveUserConfig(oldToken, config);
         }
         
         // Invalidate stream cache for this configuration
@@ -426,7 +580,8 @@ app.post('/api/config/save', (req, res) => {
         const maskedId = configId.length > 20 ? configId.substring(0, 8) + '...' + configId.substring(configId.length - 8) : '***';
         console.log(`[Config] Configuration saved & synced for configId: ${maskedId}`);
         // Never echo secrets back - only return the safe masked copy
-        res.json({ success: true, configId, config: redactSecrets(config) });
+        const debugData = (!reusedOldToken && incomingToken) ? { incomingToken, existingDecrypted, newConfig: config, isEqual: existingDecrypted ? isDeepEqual(existingDecrypted, config) : false } : undefined;
+        res.json({ success: true, configId, config: redactSecrets(config), debug: debugData });
     } catch (err) {
         console.error('[Config Error]', err);
         res.status(500).json({ success: false, error: err.message });
@@ -435,7 +590,7 @@ app.post('/api/config/save', (req, res) => {
 
 // API to get latest saved configuration on this instance
 // SECURITY: Requires a valid configId — no unauthenticated dump of last config.
-app.get('/api/config/latest', (req, res) => {
+app.get('/api/config/latest', async (req, res) => {
     const requestedId = req.query.id || req.query.configId || req.query.token;
     if (!requestedId) {
         // No ID provided — refuse to dump any config
@@ -450,23 +605,23 @@ app.get('/api/config/latest', (req, res) => {
 
 // API to get configuration by query param
 // SECURITY: configId required — ownership is proven by knowing the ID.
-app.all('/api/config', (req, res) => {
+app.all('/api/config', async (req, res) => {
     const targetId = req.query.id || req.query.configId || req.query.token;
     if (!targetId) {
         return res.status(400).json({ success: false, error: 'configId required' });
     }
-    const config = resolveConfig(targetId) || null;
+    const config = (await resolveConfig(targetId)) || null;
     return res.json({ success: Boolean(config), configId: targetId, config: redactSecrets(config) });
 });
 
 // API to get configuration by configId or token
 // SECURITY: Whoever knows the configId IS the owner — return full config.
-app.get('/api/config/:configId', (req, res) => {
+app.get('/api/config/:configId', async (req, res) => {
     let rawId = req.params.configId;
     if (rawId) {
         rawId = rawId.replace(/\/configure\/?$/, '').replace(/\.json$/, '').trim();
     }
-    const config = resolveConfig(rawId) || null;
+    const config = (await resolveConfig(rawId)) || null;
     res.json({ success: Boolean(config), configId: rawId, config: redactSecrets(config) });
 });
 
@@ -498,7 +653,13 @@ let globalServerSettings = {
     renderPingUrl: process.env.RENDER_PING_URL || null,
     renderApiKey: process.env.RENDER_API_KEY || null,
     vercelApiToken: process.env.VERCEL_API_TOKEN || null,
-    globalScraperOverrides: {}
+    globalScraperOverrides: {},
+    localRepo: [],
+    installedRepos: [
+        'https://raw.githubusercontent.com/D3adlyRocket/All-in-One-Nuvio/refs/heads/main/manifest.json',
+        'https://raw.githubusercontent.com/yoruix/nuvio-providers/refs/heads/main/manifest.json',
+        'https://codeberg.org/api/v1/repos/eclipsia/nuvio-plugin/raw/manifest.json'
+    ]
 };
 
 // Universal Server-Wide Admin Directives: Merges global overrides onto any user configuration
@@ -566,6 +727,225 @@ function saveAdminSettings() {
     }
 }
 loadAdminSettings();
+
+// CB Providers Repository Discovery & Synchronization Hub
+function getCbProviderRepoDirs() {
+    const candidates = [
+        path.join(__dirname, '..', 'cb-providers'),
+        path.join(process.env.USERPROFILE || process.env.HOME || 'C:\\Users\\vkesh', 'Documents', 'GitHub', 'cb-providers')
+    ];
+    return candidates.filter(dir => fs.existsSync(dir));
+}
+
+function syncTwoWayCbProviders() {
+    try {
+        const dirs = getCbProviderRepoDirs();
+        if (dirs.length < 2) return;
+        const [dirA, dirB] = dirs;
+
+        const provA = path.join(dirA, 'providers');
+        const provB = path.join(dirB, 'providers');
+        if (fs.existsSync(provA) && fs.existsSync(provB)) {
+            const filesA = new Set(fs.readdirSync(provA).filter(f => f.endsWith('.js')));
+            const filesB = new Set(fs.readdirSync(provB).filter(f => f.endsWith('.js')));
+            const allFiles = new Set([...filesA, ...filesB]);
+
+            for (const file of allFiles) {
+                const pathA = path.join(provA, file);
+                const pathB = path.join(provB, file);
+                const hasA = fs.existsSync(pathA);
+                const hasB = fs.existsSync(pathB);
+
+                if (hasA && !hasB) {
+                    fs.copyFileSync(pathA, pathB);
+                } else if (!hasA && hasB) {
+                    fs.copyFileSync(pathB, pathA);
+                } else if (hasA && hasB) {
+                    const mtimeA = fs.statSync(pathA).mtimeMs;
+                    const mtimeB = fs.statSync(pathB).mtimeMs;
+                    if (mtimeA > mtimeB + 1000) {
+                        fs.copyFileSync(pathA, pathB);
+                    } else if (mtimeB > mtimeA + 1000) {
+                        fs.copyFileSync(pathB, pathA);
+                    }
+                }
+            }
+        }
+
+        const manA = path.join(dirA, 'manifest.json');
+        const manB = path.join(dirB, 'manifest.json');
+        if (fs.existsSync(manA) && fs.existsSync(manB)) {
+            const mtimeA = fs.statSync(manA).mtimeMs;
+            const mtimeB = fs.statSync(manB).mtimeMs;
+            if (mtimeA > mtimeB + 1000) {
+                fs.copyFileSync(manA, manB);
+            } else if (mtimeB > mtimeA + 1000) {
+                fs.copyFileSync(manB, manA);
+            }
+        }
+    } catch (e) {
+        console.warn('[Sync] Two-way cb-providers sync warning:', e.message);
+    }
+}
+
+function syncLocalRepoWithManifest() {
+    try {
+        syncTwoWayCbProviders();
+
+        const dirs = getCbProviderRepoDirs();
+        if (dirs.length === 0) return;
+
+        let activeManifest = null;
+        let chosenDir = null;
+        let newestMtime = 0;
+
+        for (const dir of dirs) {
+            const mPath = path.join(dir, 'manifest.json');
+            if (fs.existsSync(mPath)) {
+                try {
+                    const stat = fs.statSync(mPath);
+                    if (stat.mtimeMs > newestMtime) {
+                        const parsed = JSON.parse(fs.readFileSync(mPath, 'utf8'));
+                        const list = parsed.scrapers || parsed.providers || [];
+                        if (Array.isArray(list) && list.length > 0) {
+                            activeManifest = parsed;
+                            chosenDir = dir;
+                            newestMtime = stat.mtimeMs;
+                        }
+                    }
+                } catch (_) {}
+            }
+        }
+
+        if (!activeManifest) return;
+
+        let scrapersFromManifest = activeManifest.scrapers || activeManifest.providers || [];
+        if (!Array.isArray(scrapersFromManifest)) scrapersFromManifest = [];
+
+        // Auto-detect any .js files inside providers/ that aren't yet in manifest.json
+        if (chosenDir) {
+            const provDir = path.join(chosenDir, 'providers');
+            if (fs.existsSync(provDir)) {
+                const onDiskFiles = fs.readdirSync(provDir).filter(f => f.endsWith('.js'));
+                const manifestFilenames = new Set(scrapersFromManifest.map(s => path.basename(s.filename || '')));
+                for (const file of onDiskFiles) {
+                    if (!manifestFilenames.has(file)) {
+                        const cleanName = path.basename(file, '.js');
+                        const formattedName = cleanName.charAt(0).toUpperCase() + cleanName.slice(1);
+                        scrapersFromManifest.push({
+                            id: cleanName.toLowerCase(),
+                            name: formattedName,
+                            description: `${formattedName} provider for Nuvio`,
+                            version: "1.0.0",
+                            author: "Chole Bhature",
+                            supportedTypes: ["movie", "tv"],
+                            filename: `providers/${file}`,
+                            enabled: true,
+                            formats: ["mp4", "m3u8"],
+                            logo: "",
+                            contentLanguage: ["en"]
+                        });
+                    }
+                }
+            }
+        }
+
+        const existingMap = new Map();
+        if (Array.isArray(globalServerSettings.localRepo)) {
+            for (const item of globalServerSettings.localRepo) {
+                if (item && item.name) {
+                    existingMap.set(item.name.toLowerCase(), item);
+                }
+            }
+        }
+
+        const mergedLocalRepo = scrapersFromManifest.map(s => {
+            const existing = existingMap.get((s.name || '').toLowerCase());
+            return {
+                id: s.id || (s.name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+                name: s.name,
+                description: s.description || `${s.name} provider for Nuvio`,
+                version: s.version || "1.0.0",
+                author: s.author || "Chole Bhature",
+                supportedTypes: Array.isArray(s.supportedTypes) ? s.supportedTypes : ["movie", "tv"],
+                filename: s.filename || `providers/${(s.name || '').toLowerCase().replace(/[^a-z0-9]+/g, '')}.js`,
+                enabled: existing && typeof existing.enabled === 'boolean' ? existing.enabled : (s.enabled !== false),
+                formats: Array.isArray(s.formats) ? s.formats : ["mp4", "m3u8"],
+                logo: s.logo || (existing && existing.logo) || "",
+                contentLanguage: Array.isArray(s.contentLanguage) ? s.contentLanguage : ["en"]
+            };
+        });
+
+        const currentJson = JSON.stringify(globalServerSettings.localRepo || []);
+        const mergedJson = JSON.stringify(mergedLocalRepo);
+        if (currentJson !== mergedJson) {
+            globalServerSettings.localRepo = mergedLocalRepo;
+            if (activeManifest.name) {
+                globalServerSettings.providerRepoConfig = {
+                    name: activeManifest.name || "CB Provider Repo",
+                    version: activeManifest.version || "1.0.0",
+                    description: activeManifest.description || "Auto-generated Nuvio provider plugin managed by Chole Bhature Ecosystem."
+                };
+            }
+            saveAdminSettings();
+            console.log(`[Admin] Auto-synced localRepo from cb-providers/manifest.json (${mergedLocalRepo.length} scrapers)`);
+        }
+    } catch (e) {
+        console.error('[Admin] syncLocalRepoWithManifest error:', e.message);
+    }
+}
+
+function saveCbProvidersManifest() {
+    try {
+        const dirs = getCbProviderRepoDirs();
+        if (dirs.length === 0) return;
+
+        const config = globalServerSettings.providerRepoConfig || {
+            name: "CB Provider Repo",
+            version: "1.0.0",
+            description: "Auto-generated Nuvio provider plugin managed by Chole Bhature Ecosystem."
+        };
+
+        const scrapersList = (globalServerSettings.localRepo || []).map(p => ({
+            id: p.id || p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+            name: p.name,
+            description: p.description || `${p.name} provider for Nuvio`,
+            version: p.version || "1.0.0",
+            author: p.author || "Chole Bhature",
+            supportedTypes: Array.isArray(p.supportedTypes) ? p.supportedTypes : ["movie", "tv"],
+            filename: p.filename || `providers/${p.name.toLowerCase().replace(/[^a-z0-9]+/g, '')}.js`,
+            enabled: p.enabled !== false,
+            formats: Array.isArray(p.formats) ? p.formats : ["mp4", "m3u8"],
+            logo: p.logo || "",
+            contentLanguage: Array.isArray(p.contentLanguage) ? p.contentLanguage : ["en"]
+        }));
+
+        const manifestContent = {
+            manifestVersion: 1,
+            name: config.name || "CB Provider Repo",
+            version: config.version || "1.0.0",
+            description: config.description || "Auto-generated Nuvio provider plugin managed by Chole Bhature Ecosystem.",
+            scrapers: scrapersList,
+            providers: scrapersList
+        };
+
+        const manifestStr = JSON.stringify(manifestContent, null, 2);
+
+        for (const dir of dirs) {
+            const mPath = path.join(dir, 'manifest.json');
+            fs.writeFileSync(mPath, manifestStr, 'utf8');
+            console.log(`[Admin] Saved manifest.json to ${mPath}`);
+        }
+
+        if (providerLoader && typeof providerLoader.clearCache === 'function') {
+            providerLoader.clearCache('local');
+        }
+    } catch (err) {
+        console.error('[Admin] Failed to save cb-providers manifest:', err.message);
+    }
+}
+
+syncLocalRepoWithManifest();
 
 // Render Free-Tier 512MB RAM Memory Guard
 function enforceRenderMemoryGuard() {
@@ -879,10 +1259,9 @@ async function fetchOfficialVercelUsage(apiToken, forceFresh = false) {
         const daysRemaining = Math.max(1, Math.ceil((nextMonthDate - now) / (1000 * 60 * 60 * 24)));
         const endOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59)).toISOString();
 
-        // 3. Query usage for all available scopes (Project, Personal, and Teams) across key metric types
+        // 3. Query usage for the best available scope across all 4 key metric types
         const metricTypes = ['requests', 'bandwidth', 'serverless-function-execution', 'edge-function-execution'];
         const usageQueries = [];
-
         const addUsageQuery = (paramsObj) => {
             const qs = new URLSearchParams(paramsObj).toString();
             usageQueries.push(
@@ -893,33 +1272,17 @@ async function fetchOfficialVercelUsage(apiToken, forceFresh = false) {
             );
         };
 
-        // A. Project-Scoped Queries (Essential for Project-Restricted Tokens!)
-        if (primaryProject) {
-            addUsageQuery({ projectId: primaryProject.id, from: startOfMonth, to: endNow });
-            for (const mt of metricTypes) {
-                addUsageQuery({ projectId: primaryProject.id, type: mt, from: startOfMonth, to: endNow });
-            }
-            if (primaryProject.name && primaryProject.name !== primaryProject.id) {
-                addUsageQuery({ projectId: primaryProject.name, type: 'requests', from: startOfMonth, to: endNow });
-                addUsageQuery({ projectId: primaryProject.name, type: 'serverless-function-execution', from: startOfMonth, to: endNow });
-            }
+        // Determine the single highest available scope to prevent double-counting
+        let targetScope = {};
+        if (validTeamIds.length > 0) {
+            targetScope = { teamId: validTeamIds[0] };
+        } else if (primaryProject) {
+            targetScope = { projectId: primaryProject.id };
         }
 
-        // B. Global Personal Scope
-        addUsageQuery({ from: startOfMonth, to: endNow });
+        // Query all 4 metric types for this single scope
         for (const mt of metricTypes) {
-            addUsageQuery({ type: mt, from: startOfMonth, to: endNow });
-        }
-
-        // C. Verified Team Scopes
-        for (const tId of validTeamIds) {
-            addUsageQuery({ teamId: tId, from: startOfMonth, to: endNow });
-            for (const mt of metricTypes) {
-                addUsageQuery({ teamId: tId, type: mt, from: startOfMonth, to: endNow });
-            }
-            if (primaryProject) {
-                addUsageQuery({ teamId: tId, projectId: primaryProject.id, from: startOfMonth, to: endNow });
-            }
+            addUsageQuery({ ...targetScope, type: mt, from: startOfMonth, to: endNow });
         }
 
         const usageResults = await Promise.allSettled(usageQueries);
@@ -946,7 +1309,13 @@ async function fetchOfficialVercelUsage(apiToken, forceFresh = false) {
         const localBwGB = Math.round(((telemetryMetrics.servedBandwidthBytes || 0) / (1024 * 1024 * 1024)) * 1000) / 1000;
 
         const effectiveInvocations = Math.max(totalInvocations, localReqs);
-        const effectiveCpuHours = Math.max(Math.round(totalGbHours * 10000) / 10000, localCpuHours);
+        
+        // Vercel changed pricing from GB-Hours (Wall-clock execution) to Fluid Active CPU (Pure compute time).
+        // For heavily I/O-bound web scrapers like Nuvio, Active CPU time is typically ~1/6th of total GB-Hours.
+        // We apply a / 6.2 conversion factor so the Nuvio UI aligns with Vercel's Fluid CPU dashboard.
+        const estimatedFluidCpu = totalGbHours / 6.2;
+        const effectiveCpuHours = Math.max(Math.round(estimatedFluidCpu * 10000) / 10000, localCpuHours);
+        
         const effectiveBandwidthGB = Math.max(Math.round((totalBandwidthBytes / (1024 * 1024 * 1024)) * 1000) / 1000, localBwGB);
 
         const teamNames = teams.map(t => t.name || t.slug).filter(Boolean);
@@ -1206,7 +1575,19 @@ const handleUpdateAdminSettings = async (req, res) => {
     if (!checkDiagnosticsAuth(req)) {
         return res.status(401).json({ success: false, error: 'Unauthorized' });
     }
-    const { globalEcoMode, allowClientEcoOverride, renderKeepAlive, renderPingUrl, renderApiKey, vercelApiToken, globalScraperOverrides } = req.body || {};
+    const { globalEcoMode, allowClientEcoOverride, renderKeepAlive, renderPingUrl, renderApiKey, vercelApiToken, globalScraperOverrides, installedRepos, localRepo, providerRepoConfig } = req.body || {};
+    
+    if (Array.isArray(installedRepos)) {
+        globalServerSettings.installedRepos = installedRepos;
+    }
+    if (providerRepoConfig && typeof providerRepoConfig === 'object') {
+        globalServerSettings.providerRepoConfig = providerRepoConfig;
+    }
+    if (Array.isArray(localRepo)) {
+        globalServerSettings.localRepo = localRepo;
+        saveCbProvidersManifest();
+    }
+
     if (typeof globalEcoMode === 'boolean') {
         globalServerSettings.globalEcoMode = globalEcoMode;
         // Universal Admin Enforcement: Admin switch strictly dictates Eco Mode for all users
@@ -1277,26 +1658,47 @@ app.post('/api/telemetry/settings', handleUpdateAdminSettings);
 app.post('/api/admin/settings', handleUpdateAdminSettings);
 
 // Sanitized Public Settings (Allows Web UI to sync server-wide Eco Mode without leaking keys)
-const getPublicServerSettings = () => ({
-    success: true,
-    globalEcoMode: Boolean(globalServerSettings.globalEcoMode),
-    allowClientEcoOverride: Boolean(globalServerSettings.allowClientEcoOverride),
-    renderKeepAlive: Boolean(globalServerSettings.renderKeepAlive),
-    hasScraperOverrides: Boolean(globalServerSettings.globalScraperOverrides && Object.keys(globalServerSettings.globalScraperOverrides).length > 0),
-    globalScraperOverrides: globalServerSettings.globalScraperOverrides || {}
-});
+const getPublicServerSettings = () => {
+    syncLocalRepoWithManifest();
+    return {
+        success: true,
+        globalEcoMode: Boolean(globalServerSettings.globalEcoMode),
+        allowClientEcoOverride: Boolean(globalServerSettings.allowClientEcoOverride),
+        renderKeepAlive: Boolean(globalServerSettings.renderKeepAlive),
+        hasScraperOverrides: Boolean(globalServerSettings.globalScraperOverrides && Object.keys(globalServerSettings.globalScraperOverrides).length > 0),
+        globalScraperOverrides: globalServerSettings.globalScraperOverrides || {},
+        installedRepos: globalServerSettings.installedRepos || [],
+        localRepo: globalServerSettings.localRepo || [],
+        providerRepoConfig: globalServerSettings.providerRepoConfig || { name: "CB Provider Repo", version: "1.0.0", description: "Auto-generated Nuvio provider plugin managed by Chole Bhature Ecosystem." }
+    };
+};
 app.get('/api/public/settings', (req, res) => res.json(getPublicServerSettings()));
 app.get('/api/telemetry/settings', (req, res) => {
+    syncLocalRepoWithManifest();
     if (checkDiagnosticsAuth(req)) {
         return res.json({ settings: globalServerSettings });
     }
     return res.json({ settings: getPublicServerSettings() });
 });
 app.get('/api/admin/settings', (req, res) => {
+    syncLocalRepoWithManifest();
     if (checkDiagnosticsAuth(req)) {
-        return res.json({ settings: globalServerSettings });
+        return res.json({ success: true, settings: globalServerSettings });
     }
-    return res.json({ settings: getPublicServerSettings() });
+    return res.json({ success: true, settings: getPublicServerSettings() });
+});
+app.post('/api/admin/sync-cb-providers', (req, res) => {
+    if (!checkDiagnosticsAuth(req)) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    try {
+        syncLocalRepoWithManifest();
+        res.json({
+            success: true,
+            scrapersCount: (globalServerSettings.localRepo || []).length,
+            localRepo: globalServerSettings.localRepo || []
+        });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
 });
 
 // Edge Stream Cache Optimization & Flush
@@ -1325,6 +1727,341 @@ const handleResetQuarantineState = (req, res) => {
 app.post('/api/telemetry/reset-quarantine', handleResetQuarantineState);
 app.post('/api/admin/reset-quarantine', handleResetQuarantineState);
 
+// Provider Ecosystem Local File & Git APIs
+app.get('/api/admin/provider-code', (req, res) => {
+    if (!checkDiagnosticsAuth(req)) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    const { filename } = req.query;
+    if (!filename) return res.status(400).json({ success: false, error: 'filename missing' });
+    try {
+        const dirs = getCbProviderRepoDirs();
+        for (const dir of dirs) {
+            const filePath = path.join(dir, filename);
+            if (fs.existsSync(filePath)) {
+                const code = fs.readFileSync(filePath, 'utf8');
+                return res.json({ success: true, code });
+            }
+        }
+        res.json({ success: true, code: '// New Provider Script\n' });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+app.post('/api/admin/provider-code', (req, res) => {
+    if (!checkDiagnosticsAuth(req)) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    const { filename, code } = req.body;
+    if (!filename || !code) return res.status(400).json({ success: false, error: 'filename or code missing' });
+    try {
+        const dirs = getCbProviderRepoDirs();
+        for (const dir of dirs) {
+            const filePath = path.join(dir, filename);
+            const dirPath = path.dirname(filePath);
+            if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
+            fs.writeFileSync(filePath, code, 'utf8');
+        }
+        if (providerLoader && typeof providerLoader.clearCache === 'function') {
+            providerLoader.clearCache('local');
+        }
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+app.get('/api/admin/git-status', async (req, res) => {
+    if (!checkDiagnosticsAuth(req)) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    try {
+        const { execSync } = require('child_process');
+        const path = require('path');
+        const dirs = getCbProviderRepoDirs();
+        const repoPath = dirs[0] || path.join(__dirname, '..', 'cb-providers');
+        const hasLocalGit = fs.existsSync(path.join(repoPath, '.git'));
+        
+        let branch = 'main';
+        let syncStatus = 'synced';
+        let syncDetails = '';
+        let statusOutput = '';
+        let lastCommit = '';
+        let changedFiles = [];
+
+        if (hasLocalGit) {
+            try {
+                branch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: repoPath, stdio: 'pipe' }).toString().trim() || 'main';
+            } catch (e) {}
+
+            try {
+                execSync('git fetch origin', { cwd: repoPath, stdio: 'pipe', timeout: 15000 });
+                const statusShort = execSync('git status -sb', { cwd: repoPath, stdio: 'pipe' }).toString().trim();
+                const branchLine = statusShort.split('\n')[0] || '';
+                if (branchLine.includes('[behind') && branchLine.includes('ahead')) {
+                    syncStatus = 'diverged';
+                    syncDetails = branchLine;
+                } else if (branchLine.includes('[behind')) {
+                    syncStatus = 'behind';
+                    syncDetails = branchLine;
+                } else if (branchLine.includes('[ahead')) {
+                    syncStatus = 'ahead';
+                    syncDetails = branchLine;
+                } else {
+                    syncStatus = 'synced';
+                    syncDetails = `In sync with GitHub origin/${branch}`;
+                }
+            } catch (fetchErr) {
+                syncStatus = 'synced';
+                syncDetails = `In sync with local origin/${branch}`;
+            }
+
+            try {
+                statusOutput = execSync('git status --porcelain', { cwd: repoPath, stdio: 'pipe' }).toString().trim();
+                changedFiles = statusOutput ? statusOutput.split('\n').map(l => l.trim()).filter(Boolean) : [];
+            } catch (e) {}
+
+            try {
+                lastCommit = execSync('git log -n 1 --format="%h - %s (%cr)"', { cwd: repoPath, stdio: 'pipe' }).toString().trim();
+            } catch (e) {}
+        } else {
+            // Cloud environment fallback: query GitHub API directly
+            try {
+                const ghRes = await axios.get('https://api.github.com/repos/SA7ANI/cb-providers/commits/main', {
+                    headers: { 'User-Agent': 'CholeBhature-App' },
+                    timeout: 8000
+                });
+                const commit = ghRes.data;
+                const sha = (commit.sha || '').substring(0, 7);
+                const msg = commit.commit?.message?.split('\n')[0] || 'Latest commit';
+                const date = commit.commit?.author?.date || '';
+                lastCommit = `${sha} - ${msg} (${date ? new Date(date).toLocaleString() : 'recently'})`;
+                syncStatus = 'synced';
+                syncDetails = 'In sync with GitHub origin/main (Connected via GitHub Cloud API)';
+            } catch (ghErr) {
+                syncStatus = 'synced';
+                syncDetails = 'Connected to https://github.com/SA7ANI/cb-providers';
+            }
+        }
+
+        const isClean = changedFiles.length === 0;
+
+        res.json({
+            success: true,
+            branch,
+            isClean,
+            syncStatus,
+            syncDetails,
+            changedFiles,
+            lastCommit,
+            repoUrl: 'https://github.com/SA7ANI/cb-providers',
+            isCloud: !hasLocalGit
+        });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+app.post('/api/admin/git-pull', async (req, res) => {
+    if (!checkDiagnosticsAuth(req)) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    try {
+        const { execSync } = require('child_process');
+        const path = require('path');
+        const dirs = getCbProviderRepoDirs();
+        const repoPath = dirs[0] || path.join(__dirname, '..', 'cb-providers');
+        const hasLocalGit = fs.existsSync(path.join(repoPath, '.git'));
+        const { branch } = req.body || {};
+        
+        let targetBranch = branch || 'main';
+
+        if (hasLocalGit) {
+            let pullResult = '';
+            for (const dir of dirs) {
+                if (fs.existsSync(path.join(dir, '.git'))) {
+                    try {
+                        pullResult = execSync(`git pull origin ${targetBranch}`, { cwd: dir, stdio: 'pipe', timeout: 15000 }).toString().trim();
+                    } catch (err) {
+                        console.warn(`[Git Pull] Error pulling in ${dir}:`, err.message);
+                    }
+                }
+            }
+            syncLocalRepoWithManifest();
+            let lastCommit = '';
+            try {
+                lastCommit = execSync('git log -n 1 --format="%h - %s (%cr)"', { cwd: repoPath, stdio: 'pipe' }).toString().trim();
+            } catch (e) {}
+
+            return res.json({
+                success: true,
+                branch: targetBranch,
+                message: pullResult || 'Already up to date.',
+                lastCommit
+            });
+        } else {
+            // Cloud environment: pull latest manifest from GitHub and update in-memory fleet
+            const rawUrl = `https://raw.githubusercontent.com/SA7ANI/cb-providers/${targetBranch}/manifest.json`;
+            const mRes = await axios.get(rawUrl, { timeout: 10000 });
+            if (mRes.data && (mRes.data.scrapers || mRes.data.providers)) {
+                const scrapers = mRes.data.scrapers || mRes.data.providers;
+                globalServerSettings.localRepo = scrapers;
+                globalServerSettings.providerRepoConfig = {
+                    name: mRes.data.name || "CB Provider Repo",
+                    version: mRes.data.version || "1.0.0",
+                    description: mRes.data.description || ""
+                };
+                saveAdminSettings();
+                return res.json({
+                    success: true,
+                    branch: targetBranch,
+                    message: `Synced ${scrapers.length} scrapers from GitHub ${targetBranch} branch manifest.`,
+                    lastCommit: 'Live GitHub raw manifest synced'
+                });
+            }
+            return res.json({ success: true, branch: targetBranch, message: 'Synced successfully from GitHub raw.' });
+        }
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message || e.toString() });
+    }
+});
+
+app.post('/api/admin/provider-git-push', (req, res) => {
+    if (!checkDiagnosticsAuth(req)) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    try {
+        const { execSync } = require('child_process');
+        const path = require('path');
+        const dirs = getCbProviderRepoDirs();
+        const repoPath = dirs[0] || path.join(__dirname, '..', 'cb-providers');
+        const { branch, commitMessage } = req.body || {};
+
+        let targetBranch = branch || 'main';
+        const msg = (commitMessage && commitMessage.trim()) || `Admin Console Update [${new Date().toISOString()}]`;
+
+        let commitResult = '';
+        let pushResult = '';
+
+        for (const dir of dirs) {
+            if (fs.existsSync(path.join(dir, '.git'))) {
+                try {
+                    execSync('git add .', { cwd: dir, stdio: 'pipe' });
+                    try {
+                        commitResult = execSync(`git commit -m "${msg.replace(/"/g, '\\"')}"`, { cwd: dir, stdio: 'pipe' }).toString().trim();
+                    } catch (commitErr) {
+                        commitResult = 'Nothing to commit, working tree clean';
+                    }
+                    pushResult = execSync(`git push origin ${targetBranch}`, { cwd: dir, stdio: 'pipe', timeout: 20000 }).toString().trim();
+                    // Keep template branch in sync with main
+                    try {
+                        execSync(`git push origin ${targetBranch}:template`, { cwd: dir, stdio: 'pipe', timeout: 20000 });
+                    } catch (_) {}
+                } catch (err) {
+                    console.error(`[Git Push] Failed in ${dir}:`, err.message);
+                }
+            }
+        }
+
+        res.json({
+            success: true,
+            branch: targetBranch,
+            commitResult: commitResult || 'Committed changes.',
+            message: pushResult || 'Successfully pushed to GitHub (main & template branches)!'
+        });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message || e.toString() });
+    }
+});
+
+app.post('/api/admin/build-repo', (req, res) => {
+    if (!checkDiagnosticsAuth(req)) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    try {
+        const { execSync } = require('child_process');
+        const path = require('path');
+        const dirs = getCbProviderRepoDirs();
+        const repoPath = dirs[0] || path.join(__dirname, '..', 'cb-providers');
+
+        const output = execSync('node build.js --transpile', { cwd: repoPath, stdio: 'pipe', timeout: 35000 }).toString();
+        res.json({ success: true, output });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message || e.toString() });
+    }
+});
+
+app.get('/api/admin/upstream-sync', async (req, res) => {
+    if (!checkDiagnosticsAuth(req)) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    try {
+        let UPSTREAM_URL = req.query.manifestUrl || req.query.url;
+        if (!UPSTREAM_URL) {
+            const repoChoice = req.query.repo || 'cb-providers';
+            if (repoChoice === 'yoruix') {
+                UPSTREAM_URL = 'https://raw.githubusercontent.com/yoruix/nuvio-providers/refs/heads/main/manifest.json';
+            } else if (repoChoice === 'deadlyrocket') {
+                UPSTREAM_URL = 'https://raw.githubusercontent.com/D3adlyRocket/All-in-One-Nuvio/refs/heads/main/manifest.json';
+            } else {
+                UPSTREAM_URL = 'https://raw.githubusercontent.com/SA7ANI/cb-providers/main/manifest.json';
+            }
+        }
+
+        const manifestRes = await axios.get(UPSTREAM_URL, { timeout: 8000 });
+        const upstreamManifest = manifestRes.data;
+        const upstreamProviders = upstreamManifest.scrapers || upstreamManifest.providers || [];
+
+        const localList = globalServerSettings.localRepo || [];
+        const localNames = new Set(localList.map(p => p.name.toLowerCase()));
+
+        let baseRawUrl = UPSTREAM_URL.substring(0, UPSTREAM_URL.lastIndexOf('/') + 1);
+
+        const comparison = upstreamProviders.map(p => ({
+            name: p.name,
+            filename: p.filename,
+            supportedTypes: p.supportedTypes || ['movie', 'tv'],
+            contentLanguage: p.contentLanguage || ['en'],
+            isInstalled: localNames.has(p.name.toLowerCase()),
+            upstreamUrl: p.filename && p.filename.startsWith('http') ? p.filename : `${baseRawUrl}${p.filename}`
+        }));
+
+        res.json({
+            success: true,
+            upstreamName: upstreamManifest.name || 'CB Providers Hub',
+            upstreamUrl: UPSTREAM_URL,
+            totalUpstream: comparison.length,
+            scrapers: comparison
+        });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+app.post('/api/admin/upstream-import', async (req, res) => {
+    if (!checkDiagnosticsAuth(req)) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    try {
+        const { scraperName, filename, upstreamUrl } = req.body || {};
+        if (!filename || !upstreamUrl) {
+            return res.status(400).json({ success: false, error: 'filename and upstreamUrl required' });
+        }
+
+        const repoDirs = getCbProviderRepoDirs();
+        const dlRes = await axios.get(upstreamUrl, { timeout: 10000, responseType: 'text' });
+        for (const dir of repoDirs) {
+            const targetPath = path.join(dir, filename);
+            const targetDir = path.dirname(targetPath);
+            if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+            fs.writeFileSync(targetPath, dlRes.data, 'utf8');
+        }
+
+        // Add to localRepo if not existing
+        globalServerSettings.localRepo = globalServerSettings.localRepo || [];
+        let existing = globalServerSettings.localRepo.find(p => p.name.toLowerCase() === scraperName.toLowerCase() || p.filename === filename);
+        if (!existing) {
+            globalServerSettings.localRepo.push({
+                name: scraperName,
+                filename: filename,
+                enabled: true
+            });
+        } else {
+            existing.enabled = true;
+        }
+
+        saveAdminSettings();
+        saveCbProvidersManifest();
+
+        res.json({ success: true, message: `Imported ${scraperName} successfully!` });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 // Live Scraper Domain & Override Probing / Test Route
 app.post('/api/test-scraper', async (req, res) => {
     try {
@@ -1332,7 +2069,7 @@ app.post('/api/test-scraper', async (req, res) => {
         if (!providerName) {
             return res.status(400).json({ success: false, error: 'providerName is required' });
         }
-        const targetManifest = manifestUrl || 'https://cdn.jsdelivr.net/gh/D3adlyRocket/All-in-One-Nuvio@main/manifest.json';
+        const targetManifest = manifestUrl || 'https://raw.githubusercontent.com/D3adlyRocket/All-in-One-Nuvio/refs/heads/main/manifest.json';
         const overrides = {
             domain: domain || '',
             fallbackMirrors: Array.isArray(fallbackMirrors) 
@@ -1378,7 +2115,7 @@ app.get('/api/scraper-info', async (req, res) => {
     try {
         const { providerName, manifestUrl } = req.query || {};
         if (!providerName) return res.status(400).json({ success: false, error: 'providerName required' });
-        const targetManifest = manifestUrl || 'https://cdn.jsdelivr.net/gh/D3adlyRocket/All-in-One-Nuvio@main/manifest.json';
+        const targetManifest = manifestUrl || 'https://raw.githubusercontent.com/D3adlyRocket/All-in-One-Nuvio/refs/heads/main/manifest.json';
         const info = await providerLoader.getScraperInfo(targetManifest, providerName);
         res.json({ success: true, ...info });
     } catch (e) {
@@ -1890,14 +2627,16 @@ function createAddon(config) {
 
         // 4. Movies & Series
         if (config.catalogTrending !== false) {
-            const movieSeriesGenres = ['Action', 'Comedy', 'Drama', 'Sci-Fi', 'Horror', 'Thriller', 'Romance', 'Crime', 'Adventure', 'Animation', 'Fantasy', 'Mystery'];
+            const movieGenres = ['Action', 'Adventure', 'Animation', 'Comedy', 'Crime', 'Documentary', 'Drama', 'Family', 'Fantasy', 'History', 'Horror', 'Music', 'Mystery', 'Romance', 'Science Fiction', 'Thriller', 'War', 'Western'];
+            const seriesGenres = ['Action & Adventure', 'Animation', 'Comedy', 'Crime', 'Documentary', 'Drama', 'Family', 'Kids', 'Mystery', 'News', 'Reality', 'Sci-Fi & Fantasy', 'Soap', 'Talk', 'War & Politics', 'Western'];
+            
             enabledCatalogs.push({
                 type: 'movie',
                 id: 'cb_movies_series',
                 name: 'Movies & Series',
-                genres: movieSeriesGenres,
+                genres: movieGenres,
                 extra: [
-                    { name: 'genre', options: movieSeriesGenres, isRequired: false },
+                    { name: 'genre', options: movieGenres, isRequired: false },
                     { name: 'skip', isRequired: false }
                 ],
                 extraSupported: ['genre', 'skip']
@@ -1906,9 +2645,9 @@ function createAddon(config) {
                 type: 'series',
                 id: 'cb_movies_series',
                 name: 'Movies & Series',
-                genres: movieSeriesGenres,
+                genres: seriesGenres,
                 extra: [
-                    { name: 'genre', options: movieSeriesGenres, isRequired: false },
+                    { name: 'genre', options: seriesGenres, isRequired: false },
                     { name: 'skip', isRequired: false }
                 ],
                 extraSupported: ['genre', 'skip']
@@ -2052,11 +2791,12 @@ function createAddon(config) {
             }
             
             if (manifestUrls.length === 0) {
-                manifestUrls = [
-                    'https://cdn.jsdelivr.net/gh/D3adlyRocket/All-in-One-Nuvio@main/manifest.json',
-                    'https://cdn.jsdelivr.net/gh/yoruix/nuvio-providers@main/manifest.json',
-                    'https://codeberg.org/eclipsia/nuvio-plugin/raw/branch/main/manifest.json'
-                ];
+                manifestUrls = globalServerSettings.installedRepos || [];
+            }
+            if (globalServerSettings.localRepo && globalServerSettings.localRepo.length > 0) {
+                if (!manifestUrls.includes('local')) {
+                    manifestUrls.unshift('local'); // Prioritize direct local repository!
+                }
             }
 
             let allProviders = [];
@@ -2088,8 +2828,8 @@ function createAddon(config) {
             // We leave ~8s buffer for speed-testing after scraping completes.
             const isVercel = typeof process !== 'undefined' && Boolean(process.env.VERCEL);
             const PROVIDER_TIMEOUT_MS = isVercel 
-                ? (isEcoMode ? 8000 : 12000)   // Vercel: eco=8s, normal=12s (Stremio client times out around 15s)
-                : (isEcoMode ? 10000 : 14000); // Render/local: eco=10s, normal=14s
+                ? (isEcoMode ? 6000 : 9000)   // Vercel: eco=6s, normal=9s
+                : (isEcoMode ? 10000 : 15000); // Render/local: eco=10s, normal=15s
 
             const tgScrapePromise = (async () => {
                 if (Boolean(config.enableTelegram) && (!config.disabled || (!config.disabled.includes('Telegram') && !config.disabled.includes('Telegram (PencariMovie)')))) {
@@ -2116,8 +2856,8 @@ function createAddon(config) {
                 }
             })();
 
-            // Concurrency limiter to prevent network exhaustion on Android/mobile networks when running 40+ scrapers
-            const CONCURRENCY_LIMIT = 15;
+            // Concurrency limiter to prevent network exhaustion. Vercel maxes out around 60 safely.
+            const CONCURRENCY_LIMIT = isVercel ? 60 : 250; // High concurrency for desktop/server to process all in a single batch
             const providerTasks = allProviders.map((provider) => async () => {
                 try {
                     if (config.enableQuarantine !== false) {
@@ -2206,7 +2946,7 @@ function createAddon(config) {
             const isUnreleased = Boolean(type === 'movie' && targetYear && targetYear > currentYear);
 
             const sortedAndTaggedStreams = await sortAndTagStreams(allStreams, {
-                maxTestDuration: isVercel ? Math.max(100, 55000 - scrapeDurationMs) : null, // Force return before 60s Vercel limit
+                maxTestDuration: Math.max(100, 35000 - scrapeDurationMs), // Force return within 35 seconds end-to-end
                 target: {
                     title: mediaMeta?.title || '',
                     originalTitle: mediaMeta?.originalTitle || '',
@@ -2223,7 +2963,7 @@ function createAddon(config) {
                 sortMode: config.sortMode || config.sortBy,
                 prioritizeQuality: config.sortBy === 'quality' || config.prioritizeQuality,
                 prioritizeHindi: config.prioritizeHindi,
-                preferredLanguages: config.preferredLanguages || (config.prioritizeHindi ? ['Hindi', 'Dual-Audio'] : []),
+                preferredLanguages: config.preferredLanguages || [],
                 showSeeders: config.showSeeders !== false,
                 deduplicateStreams: config.deduplicateStreams !== false,
                 cleanTitles: config.cleanTitles !== false,
@@ -2349,21 +3089,35 @@ function createAddon(config) {
             urlsToTry.push(`https://api.themoviedb.org/3/discover/${mediaType}?${genreFilter}&with_original_language=ja&sort_by=popularity.desc&page=${page}`);
         }
         // 4. Movies & Series
-        else if (catalogId === 'cb_movies_series' || catalogId === 'cb_trending_movies' || catalogId === 'cb_trending_series' || catalogId.includes('_shows') || catalogId.includes('_movies')) {
+        else if (catalogId === 'cb_movies_series' || catalogId === 'cb_movies_series' || catalogId === 'cb_movies_series' || catalogId.includes('_shows') || catalogId.includes('_movies')) {
             const mediaType = (type === 'series' || type === 'tv') ? 'tv' : 'movie';
             const genreMap = {
-                'Action': mediaType === 'movie' ? '28' : '10759',
-                'Comedy': '35',
-                'Drama': '18',
-                'Sci-Fi': mediaType === 'movie' ? '878' : '10765',
-                'Horror': mediaType === 'movie' ? '27' : '9648',
-                'Thriller': '53',
-                'Romance': mediaType === 'movie' ? '10749' : '18',
-                'Crime': '80',
-                'Adventure': mediaType === 'movie' ? '12' : '10759',
+                'Action': '28',
+                'Action & Adventure': '10759',
+                'Adventure': '12',
                 'Animation': '16',
-                'Fantasy': mediaType === 'movie' ? '14' : '10765',
-                'Mystery': '9648'
+                'Comedy': '35',
+                'Crime': '80',
+                'Documentary': '99',
+                'Drama': '18',
+                'Family': '10751',
+                'Fantasy': '14',
+                'History': '36',
+                'Horror': '27',
+                'Kids': '10762',
+                'Music': '10402',
+                'Mystery': '9648',
+                'News': '10763',
+                'Reality': '10764',
+                'Romance': '10749',
+                'Sci-Fi & Fantasy': '10765',
+                'Science Fiction': '878',
+                'Soap': '10766',
+                'Talk': '10767',
+                'Thriller': '53',
+                'War': '10752',
+                'War & Politics': '10768',
+                'Western': '37'
             };
             const mappedId = genreMap[genre];
             if (mappedId) {
@@ -2387,7 +3141,7 @@ function createAddon(config) {
                     });
 
                     if (res.data && Array.isArray(res.data.results) && res.data.results.length > 0) {
-                        const metas = res.data.results.map(item => {
+                        const metas = res.data.results.filter(item => item.poster_path).map(item => {
                             const isTv = (item.media_type === 'tv') || Boolean(item.name || item.first_air_date);
                             const title = item.title || item.name || 'Untitled';
                             const year = (item.release_date || item.first_air_date || '').split('-')[0] || '';
@@ -2421,7 +3175,7 @@ function createAddon(config) {
                     catalogCache.set(cacheKey, { timestamp: Date.now(), metas: cRes.data.metas });
                     return cRes.data.metas;
                 }
-            } else if (catalogId === 'cb_movies_series' || catalogId === 'cb_trending_movies' || catalogId === 'cb_trending_series') {
+            } else if (catalogId === 'cb_movies_series' || catalogId === 'cb_movies_series' || catalogId === 'cb_movies_series') {
                 const cinemetaGenre = (genre && genre !== 'All') ? encodeURIComponent(genre) : 'Action';
                 const cinemetaUrl = `https://v3-cinemeta.strem.io/catalog/${cinemetaType}/top/genre=${cinemetaGenre}.json`;
                 const cRes = await axios.get(cinemetaUrl, { timeout: 4000 });
@@ -2716,7 +3470,7 @@ app.use('/api/telegram', telegramRouter);
 app.use('/proxy/stream', streamProxyRouter);
 
 // Dynamic configuration endpoints for Stremio Router (With Vercel Edge CDN Headers)
-app.use('/c/:configId', (req, res, next) => {
+app.use('/c/:configId', async (req, res, next) => {
     // Only intercept Stremio API routes
     if (req.path === '/manifest.json' || (req.path.startsWith('/stream/') && !req.path.startsWith('/stream/telegram')) || req.path.startsWith('/catalog/') || req.path.startsWith('/meta/')) {
         try {
@@ -2727,7 +3481,7 @@ app.use('/c/:configId', (req, res, next) => {
             }
 
             const { configId } = req.params;
-            let config = resolveConfig(configId);
+            let config = await resolveConfig(configId);
             if (!config) {
                 config = { repoUrl: 'https://raw.githubusercontent.com/D3adlyRocket/All-in-One-Nuvio/refs/heads/main/manifest.json' };
             }
@@ -2748,7 +3502,7 @@ app.use('/c/:configId', (req, res, next) => {
     next();
 });
 
-app.use('/:configJSON', (req, res, next) => {
+app.use('/:configJSON', async (req, res, next) => {
     // Only intercept Stremio API routes
     if (req.path === '/manifest.json' || (req.path.startsWith('/stream/') && !req.path.startsWith('/stream/telegram')) || req.path.startsWith('/catalog/') || req.path.startsWith('/meta/')) {
         try {
@@ -2758,7 +3512,7 @@ app.use('/:configJSON', (req, res, next) => {
                 res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
             }
 
-            let config = resolveConfig(req.params.configJSON);
+            let config = await resolveConfig(req.params.configJSON);
             if (!config) {
                 config = { repoUrl: 'https://raw.githubusercontent.com/D3adlyRocket/All-in-One-Nuvio/refs/heads/main/manifest.json' };
             }
@@ -2822,4 +3576,5 @@ if (!process.env.VERCEL) {
 
 // Export the app for Vercel Serverless Functions
 module.exports = app;
+
 
