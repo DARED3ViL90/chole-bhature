@@ -1655,23 +1655,31 @@
             color: var(--text-purple);
         }
 
+        .glass-card:has(.custom-select-wrap.active),
+        .glass-card.has-active-dropdown,
+        .bench-card:has(.custom-select-wrap.active),
+        .bench-card.has-active-dropdown,
         .section-wrap:has(.custom-select-wrap.active),
-        .section-wrap.has-active-dropdown {
-            position: relative !important;
-            z-index: 99999 !important;
-        }
-
+        .section-wrap.has-active-dropdown,
         .section-card:has(.custom-select-wrap.active),
-        .section-card.has-active-dropdown {
-            overflow: visible !important;
-            position: relative !important;
-            z-index: 99999 !important;
-        }
-
+        .section-card.has-active-dropdown,
+        .upstream-header-actions:has(.custom-select-wrap.active),
+        .upstream-header-actions.has-active-dropdown,
         .has-active-dropdown {
             position: relative !important;
             z-index: 99999 !important;
             overflow: visible !important;
+        }
+
+        .custom-select-wrap.drop-up .custom-select-menu {
+            top: auto !important;
+            bottom: calc(100% + 6px) !important;
+            transform: translateY(8px) scale(0.98);
+            transform-origin: bottom center !important;
+        }
+
+        .custom-select-wrap.active.drop-up .custom-select-menu {
+            transform: translateY(0) scale(1) !important;
         }
 
         body.theme-amoled .custom-select-trigger {
@@ -6643,6 +6651,7 @@
                             display: grid;
                             grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
                             gap: 16px;
+                            align-items: start !important;
                         }
 
                         .scraper-item-card {
@@ -6653,7 +6662,7 @@
                             border-radius: 16px !important;
                             display: flex !important;
                             flex-direction: column !important;
-                            justify-content: space-between !important;
+                            justify-content: flex-start !important;
                             padding: 0 !important;
                             overflow: hidden !important;
                             box-shadow: 0 10px 30px -8px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
@@ -6872,6 +6881,7 @@
 
                         /* Card Bottom Action Bar */
                         .scraper-card-bottom {
+                            margin-top: auto;
                             padding: 10px 18px;
                             background: rgba(0, 0, 0, 0.28);
                             border-top: 1px solid rgba(255, 255, 255, 0.05);
@@ -6961,6 +6971,13 @@
                             background: rgba(255, 255, 255, 0.12);
                             border-color: rgba(255, 255, 255, 0.25);
                             box-shadow: 0 2px 8px rgba(255, 255, 255, 0.1);
+                        }
+
+                        .scraper-action-btn.btn-cfg.active {
+                            color: #c084fc;
+                            background: rgba(192, 132, 252, 0.22);
+                            border-color: rgba(192, 132, 252, 0.5);
+                            box-shadow: 0 0 12px rgba(192, 132, 252, 0.3);
                         }
 
                         .scraper-action-btn.btn-studio {
@@ -8593,12 +8610,10 @@
             if (!w) return;
             let el = w.parentElement;
             while (el && el !== document.body) {
-                if (el.classList.contains('tab-content') || el.classList.contains('section-card') || el.classList.contains('section-wrap') || el.classList.contains('setting-item-row') || el.classList.contains('input-bar-group') || el.classList.contains('container') || el.classList.contains('content-wrapper') || el.classList.contains('bench-card') || el.classList.contains('studio-top-bar') || el.classList.contains('bench-query-grid') || el.id === 'admin-main-providers-hub' || el.id === 'admin-sub-editor' || el.id === 'admin-sub-tester') {
-                    if (isActive) {
-                        el.classList.add('has-active-dropdown');
-                    } else {
-                        el.classList.remove('has-active-dropdown');
-                    }
+                if (isActive) {
+                    el.classList.add('has-active-dropdown');
+                } else {
+                    el.classList.remove('has-active-dropdown');
                 }
                 el = el.parentElement;
             }
@@ -8731,6 +8746,7 @@
                 const isOpen = wrap.classList.contains('active');
                 document.querySelectorAll('.custom-select-wrap.active').forEach(w => {
                     w.classList.remove('active');
+                    w.classList.remove('drop-up');
                     w.querySelector('.custom-select-trigger')?.setAttribute('aria-expanded', 'false');
                     setDropdownActiveAncestors(w, false);
                 });
@@ -8738,6 +8754,16 @@
                     wrap.classList.add('active');
                     trigger.setAttribute('aria-expanded', 'true');
                     setDropdownActiveAncestors(wrap, true);
+
+                    const rect = trigger.getBoundingClientRect();
+                    const spaceBelow = window.innerHeight - rect.bottom;
+                    const estimatedMenuHeight = Math.min(menu.scrollHeight || 260, 320);
+                    if (spaceBelow < estimatedMenuHeight && rect.top > estimatedMenuHeight) {
+                        wrap.classList.add('drop-up');
+                    } else {
+                        wrap.classList.remove('drop-up');
+                    }
+
                     const sInput = menu.querySelector('.custom-select-search-input');
                     if (sInput) {
                         sInput.value = '';
@@ -8749,6 +8775,7 @@
 
             function closeDropdown() {
                 wrap.classList.remove('active');
+                wrap.classList.remove('drop-up');
                 trigger.setAttribute('aria-expanded', 'false');
                 setDropdownActiveAncestors(wrap, false);
             }
@@ -8804,6 +8831,7 @@
             if (!e.target.closest('.custom-select-wrap')) {
                 document.querySelectorAll('.custom-select-wrap.active').forEach(w => {
                     w.classList.remove('active');
+                    w.classList.remove('drop-up');
                     w.querySelector('.custom-select-trigger')?.setAttribute('aria-expanded', 'false');
                     setDropdownActiveAncestors(w, false);
                 });
@@ -8814,6 +8842,7 @@
             if (e.key === 'Escape') {
                 document.querySelectorAll('.custom-select-wrap.active').forEach(w => {
                     w.classList.remove('active');
+                    w.classList.remove('drop-up');
                     w.querySelector('.custom-select-trigger')?.setAttribute('aria-expanded', 'false');
                     setDropdownActiveAncestors(w, false);
                 });
@@ -13358,7 +13387,7 @@
             const langs = (s.contentLanguage || []).map(l => String(l).toLowerCase());
 
             if (cat === 'anime') {
-                const animeKeywords = ['anime', 'kurage', 'anizone', 'animedekho', 'reanime', 'cartoon', 'topcartoons'];
+                const animeKeywords = ['anime', 'anizen', 'kurage', 'anizone', 'animedekho', 'reanime', 'cartoon', 'topcartoons'];
                 const isAnimeName = animeKeywords.some(k => name.includes(k) || filename.includes(k) || desc.includes(k));
                 const hasAnimeType = types.includes('anime') || types.includes('animation') || types.includes('cartoon');
                 const hasJapanese = langs.includes('ja') || langs.includes('jp') || langs.includes('japanese');
@@ -13368,7 +13397,7 @@
             if (cat === 'hi') {
                 const hindiKeywords = [
                     'moviesdrive', '4khdhub', 'hdhub4u', 'vegamovies', 'castle',
-                    'desiflix', 'einthusan', 'moviebox', 'moviesmod', 'uhdmovies',
+                    'desiflix', 'cinefreak', 'netmirror', 'einthusan', 'moviebox', 'moviesmod', 'uhdmovies',
                     'zinkmovies', 'movieblast', 'playimdb', 'animedekho', 'bolly',
                     'katmovie', 'filmy', 'extramovies', 'torrentio'
                 ];
@@ -13413,6 +13442,7 @@
 
         function getScraperLogoUrl(scraper) {
             if (!scraper) return '';
+            if (scraper.logo) return scraper.logo;
             if (scraper.logoUrl) return scraper.logoUrl;
             if (scraper.iconUrl) return scraper.iconUrl;
 
@@ -13437,6 +13467,8 @@
                 'mycima': 'mycima.red',
                 'hianime': 'hianime.to',
                 'kurage': 'kurage.live',
+                'anizen': 'anizen.site',
+                'cinefreak': 'cinefreak.net',
                 'anizone': 'anizone.to',
                 'animekai': 'anikai.cc',
                 'animepahe': 'animepahe.com',
@@ -13582,7 +13614,7 @@
                         </button>
 
                         <div class="scraper-actions-group">
-                            <button class="scraper-action-btn btn-cfg" onclick="toggleScraperSettings(${i})" title="Configure Capabilities">
+                            <button class="scraper-action-btn btn-cfg" onclick="toggleScraperSettings(${i}, this)" title="Configure Capabilities">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                             </button>
                             <button class="scraper-action-btn btn-studio" onclick="openScraperInStudio('${scraper.filename}')" title="Edit in Code Studio">
@@ -13633,9 +13665,18 @@
             }).join('');
         }
 
-        function toggleScraperSettings(i) {
+        function toggleScraperSettings(i, btn) {
             const el = document.getElementById(`scraper-settings-${i}`);
-            if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+            if (el) {
+                const isHidden = el.style.display === 'none';
+                el.style.display = isHidden ? 'block' : 'none';
+                if (!btn) {
+                    btn = document.querySelector(`.scraper-item-card:nth-child(${i + 1}) .btn-cfg`);
+                }
+                if (btn) {
+                    btn.classList.toggle('active', isHidden);
+                }
+            }
         }
 
         function toggleEcoChip(i, metaKey, val) {
@@ -13902,6 +13943,11 @@
                             const domainInput = document.getElementById('studio-override-domain');
                             if (domainInput && !domainInput.value) {
                                 domainInput.placeholder = `Default: ${info.defaultDomain}`;
+                                const note = document.getElementById('studio-override-domain-note');
+                                if (note) {
+                                    note.textContent = `⚡ Active Default: ${info.defaultDomain} (Override optional)`;
+                                    note.style.color = '#38bdf8';
+                                }
                             }
                             if (defaultBtn) defaultBtn.style.display = 'inline';
                         }
@@ -13915,6 +13961,11 @@
         function useDetectedStudioDefaultDomain() {
             if (currentStudioScraper && currentStudioScraper.detectedDefaultDomain) {
                 document.getElementById('studio-override-domain').value = currentStudioScraper.detectedDefaultDomain;
+                const note = document.getElementById('studio-override-domain-note');
+                if (note) {
+                    note.textContent = '✏️ Default domain applied (Click Commit Code & Overrides to save)';
+                    note.style.color = '#a78bfa';
+                }
                 showToast(`Applied default domain: ${currentStudioScraper.detectedDefaultDomain}`);
             }
         }
@@ -14049,7 +14100,7 @@
             runBtn.disabled = true;
             runBtn.innerHTML = '<span>⏳</span> Probing in Progress...';
 
-            term.innerHTML = `[BENCHMARK] Target: ${providerName} | Media: ${mediaType} (ID: ${mediaId})\n[INFO] Loading provider module into Node.js VM sandbox...\n[INFO] Resolving TMDB metadata & verifying DNS-over-HTTPS tunnel...`;
+            term.innerHTML = `[BENCHMARK] Target: ${providerName} | Media: ${mediaType} (ID: ${mediaId})${mediaType === 'tv' ? ` | Season ${season} Episode ${episode}` : ''}\n[INFO] Loading provider module into Node.js VM sandbox...\n[INFO] Resolving TMDB metadata & verifying DNS-over-HTTPS tunnel...`;
 
             try {
                 const res = await fetch('/api/test-scraper', {
@@ -14079,6 +14130,10 @@
                     } else {
                         streamList.innerHTML = streams.map(s => {
                             const isFast = !s.latency || s.latency < 800;
+                            const hasHeaders = s.headers && Object.keys(s.headers).length > 0;
+                            const playUrl = hasHeaders
+                                ? `/proxy/stream?url=${encodeURIComponent(s.url)}&headers=${encodeURIComponent(JSON.stringify(s.headers))}`
+                                : s.url;
                             return `
                             <div class="bench-stream-item">
                                 <div class="bench-stream-info">
@@ -14087,7 +14142,7 @@
                                 </div>
                                 <div class="bench-stream-actions" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                                     <span class="tag-pill-badge" style="background: rgba(16,185,129,0.12); color: #34d399; font-weight: 700; font-size: 11px;">🟢 FAST</span>
-                                    <a href="${s.url}" target="_blank" rel="noopener noreferrer" class="pill-btn pill-btn-glass" style="padding: 4px 10px; font-size: 11px; text-decoration: none;">▶️ Open / Test</a>
+                                    <a href="${playUrl}" target="_blank" rel="noopener noreferrer" class="pill-btn pill-btn-glass" style="padding: 4px 10px; font-size: 11px; text-decoration: none;" title="${hasHeaders ? 'Streams via Header Proxy' : 'Direct Stream'}">▶️ Open / Test</a>
                                 </div>
                             </div>`;
                         }).join('');
