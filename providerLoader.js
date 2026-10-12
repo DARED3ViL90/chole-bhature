@@ -425,8 +425,8 @@ class ProviderLoader {
                                 if (urlStr.includes('themoviedb.org') || urlStr.includes('tmdb.org')) {
                                     const cached = await fetchTmdbWithFallback(urlStr);
                                     if (cached) {
-                                        const RespClass = globalThis.Response || fetch.Response;
-                                        return new RespClass(JSON.stringify(cached), {
+                                        // Use native globalThis.Response (undici) so .json()/.text() work correctly
+                                        return new globalThis.Response(JSON.stringify(cached), {
                                             status: 200,
                                             headers: { 'content-type': 'application/json' }
                                         });
@@ -443,6 +443,81 @@ class ProviderLoader {
                                 if (override && override.headers && typeof override.headers === 'object') {
                                     mergedHeaders = { ...mergedHeaders, ...override.headers };
                                 }
+
+                                // ─── Cloudflare bypass: full browser header fingerprint ─────────────────
+                                // Cloudflare Bot Fight Mode detects node-fetch (HTTP/1.1 keep-alive agent)
+                                // from datacenter ASNs and returns 403/JS-challenge pages for HTML endpoints.
+                                // Native globalThis.fetch (undici, HTTP/2) with complete browser headers
+                                // passes the fingerprint check on Vercel and other cloud platforms.
+                                const isCdnOrApi = (
+                                    urlStr.includes('sssrr.org') ||
+                                    urlStr.includes('abyssplayer.com') ||
+                                    urlStr.includes('enc-dec.app') ||
+                                    urlStr.includes('as-cdn') ||
+                                    urlStr.includes('zephyrflick') ||
+                                    urlStr.includes('ravok') ||
+                                    urlStr.includes('blakiteapi.xyz') ||
+                                    urlStr.includes('cdnwish') ||
+                                    urlStr.includes('streamwish') ||
+                                    urlStr.includes('raw.githubusercontent.com') ||
+                                    urlStr.includes('api.') ||
+                                    urlStr.match(/\.(m3u8|mp4|mkv|ts|mpd)(\?|$)/)
+                                );
+
+                                const method = (options.method || 'GET').toUpperCase();
+                                const useNativeFetch = !isCdnOrApi && typeof globalThis.fetch === 'function';
+
+                                if (useNativeFetch) {
+                                    // Build a plausible browser header set; let provider headers override
+                                    const browserHeaders = {
+                                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
+                                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                                        'Accept-Language': 'en-US,en;q=0.9',
+                                        'Accept-Encoding': 'gzip, deflate, br',
+                                        'Connection': 'keep-alive',
+                                        'Upgrade-Insecure-Requests': '1',
+                                        'Sec-Fetch-Dest': method === 'GET' ? 'document' : 'empty',
+                                        'Sec-Fetch-Mode': method === 'GET' ? 'navigate' : 'cors',
+                                        'Sec-Fetch-Site': 'none',
+                                        'Sec-Fetch-User': '?1',
+                                        ...mergedHeaders
+                                    };
+
+                                    const nativeOptions = { method, headers: browserHeaders };
+                                    if (options.body) nativeOptions.body = options.body;
+                                    if (options.signal) nativeOptions.signal = options.signal;
+
+                                    const tryNative = async (targetUrl) => {
+                                        const controller = new AbortController();
+                                        const timer = setTimeout(() => controller.abort(), options.timeout || 10000);
+                                        try {
+                                            return await globalThis.fetch(targetUrl, { ...nativeOptions, signal: controller.signal });
+                                        } finally {
+                                            clearTimeout(timer);
+                                        }
+                                    };
+
+                                    try {
+                                        const res = await tryNative(urlStr);
+                                        if (!res.ok && override && Array.isArray(override.fallbackMirrors) && override.fallbackMirrors.length > 0) {
+                                            for (const mirror of override.fallbackMirrors) {
+                                                try {
+                                                    const fbRes = await tryNative(applyDomainOverride(urlStr, { domain: mirror }));
+                                                    if (fbRes.ok) return fbRes;
+                                                } catch (e) {}
+                                            }
+                                        }
+                                        return res;
+                                    } catch (err) {
+                                        if (override && Array.isArray(override.fallbackMirrors) && override.fallbackMirrors.length > 0) {
+                                            for (const mirror of override.fallbackMirrors) {
+                                                try { return await tryNative(applyDomainOverride(urlStr, { domain: mirror })); } catch (e) {}
+                                            }
+                                        }
+                                        throw err;
+                                    }
+                                }
+                                // ────────────────────────────────────────────────────────────────────────
 
                                 const chosenAgent = urlStr.startsWith('http://') ? httpAgent : httpsAgent;
                                 const mergedOptions = {
