@@ -3195,7 +3195,7 @@ function createAddon(config) {
                     season: season,
                     episode: episode
                 },
-                hideDead: config.hideDead,
+                hideDead: config.hideDead !== undefined ? Boolean(config.hideDead) : true,
                 hideSlow: config.hideSlow,
                 hideCam: config.hideCam || config.blockCam,
                 sortBy: config.sortBy || (config.prioritizeQuality ? 'quality' : 'speed'),

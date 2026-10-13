@@ -502,10 +502,33 @@ function getSeederScore(stream) {
     return meta.seeders || 0;
 }
 
+function isUnplayableMediaUrl(urlStr) {
+    if (!urlStr || typeof urlStr !== 'string') return true;
+    const low = urlStr.toLowerCase();
+    // Ad gateways, shortlinks, scam/ad redirectors
+    if (low.includes('thenaukriadda.in') || low.includes('gamerxyt.com') || low.includes('unblockedgames') || low.includes('href.li/?')) return true;
+    // Dead workers / dead hosts / dead platforms
+    if (low.includes('pixel.hubcloud.ist') || low.includes('pixeldrain.dev') || low.includes('mbaccess.site') || low.includes('linkmove.') || low.includes('visionaryfounderslab.site')) return true;
+    // Embed player iframes (HTML documents that cannot be decoded by native ExoPlayer / AVPlayer / MPV)
+    if (low.includes('/embed/') || low.includes('/e/') || low.includes('moviesapi.to') || low.includes('vaplayer.ru') || low.includes('vsembed.ru') || low.includes('vidsrc.me') || low.includes('vidsrc.to') || low.includes('vidrock.ru') || low.includes('play.xpass.top') || low.includes('primesrc.me')) return true;
+    // Unresolved download landing hubs
+    if (low.includes('fastdl.beer') || low.includes('vcloud.beer') || low.includes('nexdrive.beer')) return true;
+    // Cloud storage landing pages that require interactive browser downloads
+    if (low.includes('mega.nz/') || low.includes('mediafire.com/file/') || low.includes('drive.google.com/file/')) return true;
+    return false;
+}
+
 async function testStream(stream, showSeeders = true, config = {}) {
     const startTime = Date.now();
     const originalName = stream.name || 'Stream';
     const providerName = cleanProviderName(originalName);
+
+    // Auto-rewrite Pixeldrain web view links to high-speed direct API stream URLs
+    if (stream.url && typeof stream.url === 'string') {
+        if (stream.url.includes('pixeldrain.com/u/')) {
+            stream.url = stream.url.replace('pixeldrain.com/u/', 'pixeldrain.com/api/file/');
+        }
+    }
 
     const rawSnapshot = stream._rawStream || {
         name: stream.name,
@@ -515,6 +538,23 @@ async function testStream(stream, showSeeders = true, config = {}) {
     stream._rawStream = rawSnapshot;
     const initialMeta = stream._preparsedMeta || parseStreamMetadata(rawSnapshot);
     stream._preparsedMeta = initialMeta;
+
+    // Reject non-playable ad/embed/dead URLs immediately
+    if (isUnplayableMediaUrl(stream.url)) {
+        const labels = formatStreamLabels(stream, 99999, false, true, showSeeders, config);
+        return {
+            ...stream,
+            name: labels.name,
+            title: labels.title,
+            description: labels.description,
+            latency: 99999,
+            isDead: true,
+            statusCategory: 'dead',
+            originalProvider: providerName,
+            _rawStream: rawSnapshot,
+            _preparsedMeta: initialMeta
+        };
+    }
 
     // Normalize headers for players (ExoPlayer, Nuvio, Stremio)
     const customHeaders = {
@@ -739,17 +779,27 @@ async function testStream(stream, showSeeders = true, config = {}) {
         let isDead = false;
 
         try {
-            // 1. Primary probe: Direct HEAD request to stream.url
-            const res = await axios.head(stream.url, {
+            // If URL is a Cloudflare worker, R2, or worker-based CDN, probe with GET Range instead of HEAD
+            // because Cloudflare Workers often reject HEAD with 403 while allowing GET Range (206)
+            const isWorkerCdn = stream.url.includes('workers.dev') || stream.url.includes('cloudflarestorage') || stream.url.includes('r2.dev') || stream.url.includes('googleusercontent.com');
+            const probeMethod = isWorkerCdn ? 'get' : 'head';
+            const extraProbeHeaders = isWorkerCdn ? { ...probeHeaders, 'Range': 'bytes=0-100' } : probeHeaders;
+
+            const res = await axios({
+                method: probeMethod,
+                url: stream.url,
                 timeout: TIMEOUT_MS,
-                headers: probeHeaders,
+                headers: extraProbeHeaders,
                 httpAgent: dohHttpAgent,
                 httpsAgent: dohHttpsAgent,
                 validateStatus: () => true,
                 maxRedirects: 3
             });
 
-            if (res.status === 404 || res.status === 410 || res.status >= 500) {
+            const contentType = (res.headers['content-type'] || '').toLowerCase();
+            const isHtml = contentType.includes('text/html') && !stream.url.includes('.m3u8') && !stream.url.includes('.m3u');
+
+            if (res.status === 404 || res.status === 410 || res.status >= 500 || isHtml) {
                 isDead = true;
                 latency = 99999;
             } else if (res.status === 403) {
@@ -763,7 +813,10 @@ async function testStream(stream, showSeeders = true, config = {}) {
                         validateStatus: () => true,
                         maxRedirects: 3
                     });
-                    if (rangeRes.status === 404 || rangeRes.status === 410 || rangeRes.status >= 500) {
+                    const rangeContentType = (rangeRes.headers['content-type'] || '').toLowerCase();
+                    const rangeIsHtml = rangeContentType.includes('text/html') && !stream.url.includes('.m3u8') && !stream.url.includes('.m3u');
+
+                    if (rangeRes.status === 404 || rangeRes.status === 410 || rangeRes.status >= 500 || rangeIsHtml) {
                         isDead = true;
                         latency = 99999;
                     } else if (rangeRes.status === 403) {
@@ -807,7 +860,10 @@ async function testStream(stream, showSeeders = true, config = {}) {
                     maxRedirects: 3
                 });
 
-                if (getRes.status === 404 || getRes.status === 410 || getRes.status >= 500) {
+                const getContentType = (getRes.headers['content-type'] || '').toLowerCase();
+                const getIsHtml = getContentType.includes('text/html') && !stream.url.includes('.m3u8') && !stream.url.includes('.m3u');
+
+                if (getRes.status === 404 || getRes.status === 410 || getRes.status >= 500 || getIsHtml) {
                     isDead = true;
                     latency = 99999;
                 } else if (getRes.status === 403) {
@@ -1174,8 +1230,9 @@ async function sortAndTagStreams(streams, config = {}, providerAnalytics) {
 
     // Filter
     let filteredStreams = testedStreams;
-    if (config && config.hideDead) {
-        filteredStreams = filteredStreams.filter(s => s.statusCategory !== 'dead');
+    const shouldHideDead = config && config.hideDead !== undefined ? Boolean(config.hideDead) : true;
+    if (shouldHideDead) {
+        filteredStreams = filteredStreams.filter(s => s.statusCategory !== 'dead' && !s.isDead && (typeof s.latency !== 'number' || s.latency < 90000));
     }
     if (config && config.hideSlow) {
         filteredStreams = filteredStreams.filter(s => s.statusCategory !== 'slow');
@@ -1188,9 +1245,9 @@ async function sortAndTagStreams(streams, config = {}, providerAnalytics) {
         });
     }
 
-    // Safety fallback: if strict filters leave 0 streams, retain all tested streams
+    // Safety fallback: if strict slow/cam filters leave 0 streams, retain playable tested streams (never revive dead streams!)
     if (filteredStreams.length === 0 && testedStreams.length > 0) {
-        filteredStreams = testedStreams;
+        filteredStreams = testedStreams.filter(s => s.statusCategory !== 'dead' && !s.isDead && (typeof s.latency !== 'number' || s.latency < 90000));
     }
 
     // Sort
