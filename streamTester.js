@@ -793,7 +793,13 @@ async function testStream(stream, showSeeders = true, config = {}) {
                 maxRedirects: 3
             });
 
-            if (res.status === 404 || res.status === 410 || res.status >= 500) {
+            const headContentType = String(res.headers['content-type'] || '').toLowerCase();
+            const isHeadHtml = headContentType.includes('text/html') && !stream.url.includes('.m3u8') && !stream.url.includes('.mpd');
+
+            if (isHeadHtml) {
+                isDead = true;
+                latency = 99999;
+            } else if (res.status === 404 || res.status === 410 || res.status >= 500) {
                 isDead = true;
                 latency = 99999;
             } else if (res.status === 403) {
@@ -807,7 +813,10 @@ async function testStream(stream, showSeeders = true, config = {}) {
                         validateStatus: () => true,
                         maxRedirects: 3
                     });
-                    if (rangeRes.status === 404 || rangeRes.status === 410 || rangeRes.status >= 500) {
+                    const rangeContentType = String(rangeRes.headers['content-type'] || '').toLowerCase();
+                    const isRangeHtml = rangeContentType.includes('text/html') && !stream.url.includes('.m3u8') && !stream.url.includes('.mpd');
+
+                    if (isRangeHtml || rangeRes.status === 404 || rangeRes.status === 410 || rangeRes.status >= 500) {
                         isDead = true;
                         latency = 99999;
                     } else if (rangeRes.status === 403) {
@@ -851,7 +860,10 @@ async function testStream(stream, showSeeders = true, config = {}) {
                     maxRedirects: 3
                 });
 
-                if (getRes.status === 404 || getRes.status === 410 || getRes.status >= 500) {
+                const getContentType = String(getRes.headers['content-type'] || '').toLowerCase();
+                const isGetHtml = getContentType.includes('text/html') && !stream.url.includes('.m3u8') && !stream.url.includes('.mpd');
+
+                if (isGetHtml || getRes.status === 404 || getRes.status === 410 || getRes.status >= 500) {
                     isDead = true;
                     latency = 99999;
                 } else if (getRes.status === 403) {
