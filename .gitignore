@@ -7,3 +7,6 @@ telemetry_metrics.json
 test_suite.js
 .secret
 scratch/
+state/
+*.lock
+

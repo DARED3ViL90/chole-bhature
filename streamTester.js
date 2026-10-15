@@ -698,6 +698,23 @@ async function testStream(stream, showSeeders = true, config = {}) {
         const urlObj = new URL(stream.url);
         const origin = urlObj.origin;
 
+        // High-Speed Domain Latency Memoization: If origin CDN was already tested in this batch, reuse probe result immediately
+        if (origin && domainLatencyCache.has(origin)) {
+            const cachedDomain = domainLatencyCache.get(origin);
+            const labels = formatStreamLabels(stream, cachedDomain.latency, false, cachedDomain.isDead, showSeeders, config);
+            return {
+                ...stream,
+                name: labels.name,
+                title: labels.title, description: labels.description,
+                latency: cachedDomain.latency,
+                isDead: cachedDomain.isDead,
+                statusCategory: cachedDomain.statusCategory,
+                originalProvider: providerName,
+                _rawStream: rawSnapshot,
+                _preparsedMeta: initialMeta
+            };
+        }
+
         const probeHeaders = {
             'User-Agent': customHeaders['User-Agent'] || customHeaders['user-agent'] || USER_AGENT,
             ...(customHeaders['Referer'] || customHeaders['referer'] ? { 'Referer': customHeaders['Referer'] || customHeaders['referer'] } : {}),
@@ -849,6 +866,7 @@ async function testStream(stream, showSeeders = true, config = {}) {
         }
 
         if (isDead || latency >= 90000) {
+            if (origin) domainLatencyCache.set(origin, { latency: 99999, isDead: true, statusCategory: 'dead' });
             const labels = formatStreamLabels(stream, 99999, false, true, showSeeders, config);
             return {
                 ...stream,
@@ -864,6 +882,7 @@ async function testStream(stream, showSeeders = true, config = {}) {
         }
 
         const statusCategory = latency < 800 ? 'fast' : 'slow';
+        if (origin) domainLatencyCache.set(origin, { latency, isDead: false, statusCategory });
         const labels = formatStreamLabels(stream, latency, false, false, showSeeders, config);
 
         return {
