@@ -3235,7 +3235,7 @@ function createAddon(config) {
             const isUnreleased = Boolean(type === 'movie' && targetYear && targetYear > currentYear);
 
             const sortedAndTaggedStreams = await sortAndTagStreams(allStreams, {
-                maxTestDuration: Math.min(2500, Math.max(600, 11000 - scrapeDurationMs)), // Fast speed testing via domain latency cache
+                maxTestDuration: Math.max(5000, 25000 - scrapeDurationMs), // Generous duration to accurately probe stream speeds
                 target: {
                     title: mediaMeta?.title || '',
                     originalTitle: mediaMeta?.originalTitle || '',
@@ -3692,11 +3692,12 @@ function renderCacheClearedHtml(type, id, clearedCount = 1) {
 </html>`;
 }
 
-function purgeStreamCachesForTarget(type, id, configId = null) {
+async function purgeStreamCachesForTarget(type, id, configParam = null) {
     let count = 0;
     const cleanId = decodeURIComponent(id || '');
     const imdbId = cleanId.split(':')[0];
 
+    // 1. Purge memory cache
     for (const key of streamCache.keys()) {
         if (key.includes(cleanId) || (imdbId && key.includes(imdbId)) || key.includes(id)) {
             streamCache.delete(key);
@@ -3709,28 +3710,67 @@ function purgeStreamCachesForTarget(type, id, configId = null) {
             count++;
         }
     }
-    if (configId) {
+    if (configParam) {
         for (const key of streamCache.keys()) {
-            if (key.includes(configId) && (key.includes(cleanId) || key.includes(id))) {
+            if (key.includes(configParam) && (key.includes(cleanId) || key.includes(id))) {
                 streamCache.delete(key);
                 count++;
             }
         }
     }
 
-    // Also purge Upstash KV cache for this target
+    // 2. Also purge Upstash KV cache for this target
     if (isKVEnabledGlobal) {
         try {
-            const defaultHash = getStreamConfigHash({});
-            kv.del(`cb:str:${type}:${cleanId}:${defaultHash}`).catch(() => {});
-            kv.del(`cb:str:${type}:${id}:${defaultHash}`).catch(() => {});
-            if (imdbId) {
-                kv.del(`cb:str:${type}:${imdbId}:${defaultHash}`).catch(() => {});
+            // Delete with exact config hash if configParam is provided
+            if (configParam) {
+                try {
+                    const resolved = await resolveConfig(configParam);
+                    if (resolved) {
+                        const hash = getStreamConfigHash(resolved);
+                        await Promise.allSettled([
+                            kv.del(`cb:str:${type}:${cleanId}:${hash}`),
+                            kv.del(`cb:str:${type}:${id}:${hash}`),
+                            imdbId ? kv.del(`cb:str:${type}:${imdbId}:${hash}`) : Promise.resolve()
+                        ]);
+                    }
+                } catch (e) {}
             }
-        } catch (e) {}
+
+            // Always delete default config hash
+            const defaultHash = getStreamConfigHash({});
+            await Promise.allSettled([
+                kv.del(`cb:str:${type}:${cleanId}:${defaultHash}`),
+                kv.del(`cb:str:${type}:${id}:${defaultHash}`),
+                imdbId ? kv.del(`cb:str:${type}:${imdbId}:${defaultHash}`) : Promise.resolve()
+            ]);
+
+            // Scan and delete ALL keys in KV matching cleanId / id / imdbId
+            // This guarantees that ANY user's config cache for this movie/show is completely cleared!
+            try {
+                const patterns = [
+                    `cb:str:*${cleanId}*`,
+                    `cb:str:*${id}*`
+                ];
+                if (imdbId && imdbId !== cleanId) {
+                    patterns.push(`cb:str:*${imdbId}*`);
+                }
+                for (const pat of patterns) {
+                    const keys = await kv.keys(pat);
+                    if (Array.isArray(keys) && keys.length > 0) {
+                        await Promise.allSettled(keys.map(k => kv.del(k)));
+                        count += keys.length;
+                    }
+                }
+            } catch (scanErr) {
+                console.warn('[KV Purge Scan Warning]', scanErr.message);
+            }
+        } catch (e) {
+            console.warn('[KV Purge Error]', e.message);
+        }
     }
 
-    // Also clear memoized domain speed probes so Normal Mode freshly re-probes
+    // 3. Also clear memoized domain speed probes so streams freshly re-probe
     try {
         clearDomainLatencyCache();
     } catch (e) {}
@@ -3738,11 +3778,11 @@ function purgeStreamCachesForTarget(type, id, configId = null) {
     return count;
 }
 
-const handleClearCacheRequest = (req, res, configId = null) => {
+const handleClearCacheRequest = async (req, res, configId = null) => {
     const { type, id } = req.params;
     try {
-        const clearedCount = purgeStreamCachesForTarget(type, id, configId);
-        console.log(`[Cache] Force refresh cleared ${clearedCount} entries for ${type} ${id} (configId: ${configId || 'none'})`);
+        const clearedCount = await purgeStreamCachesForTarget(type, id, configId);
+        console.log(`[Cache] Force refresh cleared ${clearedCount} entries for ${type} ${id} (config: ${configId || 'none'})`);
         
         res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
         
@@ -3764,7 +3804,7 @@ app.get('/clear-cache/:type/:id', (req, res) => {
 });
 
 app.get('/:configJSON/clear-cache/:type/:id', (req, res) => {
-    handleClearCacheRequest(req, res, null);
+    handleClearCacheRequest(req, res, req.params.configJSON);
 });
 
 app.get('/c/:configId/clear-cache/:type/:id', (req, res) => {
