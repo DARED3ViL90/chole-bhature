@@ -294,14 +294,39 @@ function getStreamFingerprint(stream) {
                 return `url:${parsed.protocol}//${parsed.host}${parsed.pathname}${cleanQuery}`.toLowerCase();
             }
         } catch (e) {}
-        return `raw:${rawUrl.trim().toLowerCase()}`;
     }
 
-    // 3. Fallback: Release signature match (identical normalized title + resolution + size)
+    // 3. Smart Semantic Mirror Fingerprinting (for Direct/Hoster links across different CDNs / mirrors)
     const meta = parseStreamMetadata(stream);
-    const titleNorm = (stream.title || stream.description || stream.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (titleNorm && meta.resolution && meta.size) {
-        return `release:${titleNorm}:${meta.resolution}:${meta.size}`;
+    const candidateTitle = meta.cleanTitle || (stream.behaviorHints && stream.behaviorHints.filename) || stream.title || stream.description || stream.name || '';
+    const cleanTitle = String(candidateTitle)
+        .toLowerCase()
+        .replace(/^(?:\[[^\]]+\]|\([^\)]+\)|www\.[a-z0-9.-]+\.[a-z]{2,4}[\s._-]*)/gi, '')
+        .replace(/[^a-z0-9]/g, '');
+
+    const res = meta.resolution || 'unknown';
+    const quality = (meta.quality || '').toLowerCase();
+    const group = (meta.releaseGroup || '').toLowerCase();
+    const seasonEp = meta.season ? `s${String(meta.season).padStart(2, '0')}e${String(meta.episode || 0).padStart(2, '0')}` : '';
+
+    let sizeBucket = '';
+    if (meta.sizeBytes && meta.sizeBytes > 1024 * 1024) {
+        // Round to nearest 150MB chunk so minor byte variances match across mirror providers
+        const chunk150mb = 150 * 1024 * 1024;
+        sizeBucket = `b${Math.round(meta.sizeBytes / chunk150mb) * 150}m`;
+    }
+
+    if (cleanTitle && res !== 'unknown') {
+        if (group && group !== 'nuvio' && group !== 'flux') {
+            return `mirror:${cleanTitle}:${seasonEp}:${res}:${quality}:${group}`;
+        }
+        if (sizeBucket) {
+            return `mirror:${cleanTitle}:${seasonEp}:${res}:${quality}:${sizeBucket}`;
+        }
+    }
+
+    if (rawUrl && typeof rawUrl === 'string') {
+        return `raw:${rawUrl.trim().toLowerCase()}`;
     }
 
     return null;
@@ -319,7 +344,12 @@ function deduplicateAndMergeStreams(streams, enabled = true) {
         const pName = cleanProviderName(stream.originalProvider || stream.name);
 
         if (!fingerprint) {
-            const copy = { ...stream, providers: pName ? [pName] : ['Stream'] };
+            const copy = { 
+                ...stream, 
+                providers: pName ? [pName] : ['Stream'],
+                mirrors: stream.url ? [{ url: stream.url, provider: pName, headers: stream.headers }] : [],
+                mirrorCount: 1
+            };
             result.push(copy);
             continue;
         }
@@ -334,6 +364,19 @@ function deduplicateAndMergeStreams(streams, enabled = true) {
             if (pName && !existing.providers.includes(pName)) {
                 existing.providers.push(pName);
             }
+
+            // Maintain stacked mirror list for Smart Mirror Stacking & Failover
+            if (!existing.mirrors) {
+                existing.mirrors = [{ url: existing.url, provider: existing.providers[0] || 'Stream', headers: existing.headers }];
+            }
+            if (stream.url && !existing.mirrors.some(m => m.url === stream.url)) {
+                existing.mirrors.push({
+                    url: stream.url,
+                    provider: pName || 'Mirror',
+                    headers: stream.headers
+                });
+            }
+            existing.mirrorCount = existing.mirrors.length;
 
             // Merge seeders (preserve highest seeders count)
             const metaExisting = parseStreamMetadata(existing);
@@ -356,7 +399,12 @@ function deduplicateAndMergeStreams(streams, enabled = true) {
                 existing.behaviorHints = { ...(existing.behaviorHints || {}), ...(stream.behaviorHints || {}) };
             }
         } else {
-            const copy = { ...stream, providers: pName ? [pName] : ['Stream'] };
+            const copy = { 
+                ...stream, 
+                providers: pName ? [pName] : ['Stream'],
+                mirrors: stream.url ? [{ url: stream.url, provider: pName, headers: stream.headers }] : [],
+                mirrorCount: 1
+            };
             mergedMap.set(fingerprint, copy);
             result.push(copy);
         }
@@ -1508,6 +1556,27 @@ async function sortAndTagStreams(streams, config = {}, providerAnalytics) {
                     const protocol = config.addonProtocol || 'https';
                     stremioStream.url = `${protocol}://${config.addonHost}/debrid/${config.debridProvider}/${config.debridApiKey}/${hash}`;
                     delete stremioStream.infoHash;
+                }
+            }
+        }
+
+        // Smart Mirror Stacking: Wrap multiple mirror URLs with the Self-Healing Failover Proxy
+        if (Array.isArray(stremioStream.mirrors) && stremioStream.mirrors.length > 1 && stremioStream.url && stremioStream.url.startsWith('http')) {
+            const fallbackUrls = stremioStream.mirrors
+                .map(m => m.url)
+                .filter(u => u && u !== stremioStream.url && typeof u === 'string' && u.startsWith('http'));
+
+            if (fallbackUrls.length > 0) {
+                stremioStream.mirrorUrls = fallbackUrls;
+                stremioStream.behaviorHints = {
+                    ...(stremioStream.behaviorHints || {}),
+                    mirrors: fallbackUrls,
+                    mirrorCount: stremioStream.mirrors.length
+                };
+
+                if (config.addonHost) {
+                    const protocol = config.addonProtocol || 'https';
+                    stremioStream.url = `${protocol}://${config.addonHost}/proxy/stream?url=${encodeURIComponent(stremioStream.url)}&fallbacks=${encodeURIComponent(JSON.stringify(fallbackUrls))}`;
                 }
             }
         }

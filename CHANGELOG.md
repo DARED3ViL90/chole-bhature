@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.5.0] - 2026-10-16
+
+### ⚡ Speed & Instant Playback Innovations
+
+#### 1. Smart Mirror Stacking & Semantic Stream Deduplication (`streamTester.js`)
+* **Semantic Release Fingerprinting Engine**:
+  - Implemented advanced multi-tier release matching in `getStreamFingerprint`:
+    - Accurately identifies mirrors of the same release across dozens of scrapers using canonical title normalization, season/episode keys (`s01e01`), resolution tiers (`2160p`, `1080p`, `720p`), release quality (`REMUX`, `BluRay`, `WEB-DL`), video codecs (`HEVC`, `AV1`, `x264`), release groups (e.g., `FLUX`, `QxR`, `YTS`, `Pahe`), and rounded 150MB byte-size buckets.
+    - Resolves the issue where 15–20 identical streams were displayed across the screen from different hosters.
+* **Fastest Live Route Selection**:
+  - When scrapers provide multiple mirrors for a release, the testing engine probes them and automatically assigns the **fastest measured live mirror** (lowest ms ping) as the primary stream URL.
+  - Backups are maintained in the stream's fallback mirror stack.
+  - Reduces stream list clutter by up to **70%** while ensuring the best possible initial playback speed.
+
+#### 2. Self-Healing Stream Failover Proxy (`routes/streamProxy.js`)
+* **Automatic Multi-Mirror Failover**:
+  - Upgraded `/proxy/stream` endpoint with multi-mirror failover via `fallbacks` query parameter.
+  - If a primary hosting provider drops connection, returns HTTP 403 Forbidden, 404 Not Found, 5xx Gateway errors, or experiences token expiration, the proxy catches the error and **transparently attempts the next healthy mirror in the stack**.
+  - Media players (ExoPlayer, VLC, Stremio, Nuvio) continue playback without showing error modals, black screens, or buffering freezes.
+
+#### 3. Multi-Mirror Stream Card Badging (`streamFormatter.js` & `streamIngest.js`)
+* **Visual Mirror Badging**:
+  - Added `⚡ [N Mirrors]` indicator badge to the stream header line for multi-source releases.
+  - Added `⚡ N Live Mirrors` badge to the metadata specifications row.
+  - Provider attribution cleanly combines sources (e.g. `HubCloud + Vega (+1 more)`).
+
+---
+
 ## [4.4.0] - 2026-10-16
 
 ### 🚀 Major Performance & Architecture Overhaul

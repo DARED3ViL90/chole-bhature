@@ -143,11 +143,14 @@ function formatStreamCard(ingested, options = {}) {
         });
     }
 
+    const mirrorBadge = (ingested.mirrorCount > 1) ? `⚡ [${ingested.mirrorCount} Mirrors]` : null;
+
     let topBadges = [];
     if (config.cleanTitles !== false) {
         // Modern Minimalist Header (Stream Card Presentation Studio)
         topBadges = [
             debridBadge,
+            mirrorBadge,
             parsed.resolution === '2160p' ? '4K UHD' : (parsed.resolution === '1080p' ? '1080p FHD' : (parsed.resolution === '720p' ? '720p HD' : parsed.resolution)),
             ...dvHdrBadges,
             audioBadge
@@ -156,6 +159,7 @@ function formatStreamCard(ingested, options = {}) {
         // Legacy Detailed Header
         topBadges = [
             debridBadge,
+            mirrorBadge,
             parsed.resolution === '2160p' ? '4K UHD' : (parsed.resolution === '1080p' ? '1080p FHD' : (parsed.resolution === '720p' ? '720p HD' : parsed.resolution)),
             ...dvHdrBadges,
             imaxBadge,
@@ -379,6 +383,9 @@ function formatStreamCard(ingested, options = {}) {
     }
     if (parsed.releaseGroup && config.showReleaseGroup !== false) {
         metaRow.push(`🏷️ ${parsed.releaseGroup}`);
+    }
+    if (ingested.mirrorCount > 1) {
+        metaRow.push(`⚡ ${ingested.mirrorCount} Live Mirrors`);
     }
     metaRow.push(`🔗 ${providerLabel}`);
     if (metaRow.length > 0) {

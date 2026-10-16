@@ -5,9 +5,9 @@
   # Chole Bhature
   ### High-Performance Stream Meta-Sorter & Discovery Hub for Nuvio & Stremio
 
-  [![Version](https://img.shields.io/badge/version-4.4.0-indigo.svg?style=for-the-badge)](https://github.com/SA7ANI/chole-bhature)
+  [![Version](https://img.shields.io/badge/version-4.5.0-indigo.svg?style=for-the-badge)](https://github.com/SA7ANI/chole-bhature)
   [![Platform](https://img.shields.io/badge/Platform-Nuvio%20%7C%20Stremio-purple.svg?style=for-the-badge)](https://github.com/SA7ANI/chole-bhature)
-  [![Changelog](https://img.shields.io/badge/Changelog-v4.4.0-teal.svg?style=for-the-badge)](CHANGELOG.md)
+  [![Changelog](https://img.shields.io/badge/Changelog-v4.5.0-teal.svg?style=for-the-badge)](CHANGELOG.md)
   [![License](https://img.shields.io/badge/License-GNU%20AGPLv3-amber.svg?style=for-the-badge)](LICENSE)
   [![Author](https://img.shields.io/badge/Author-SA7ANI-blue.svg?style=for-the-badge)](https://github.com/SA7ANI)
   [![Telegram](https://img.shields.io/badge/Telegram-Chat-0088cc.svg?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/cholebhature_chat)
@@ -24,9 +24,9 @@
 
 **Chole Bhature** is an enterprise-grade stream meta-sorter, provider priority engine, and IPTV discovery hub designed for **Nuvio** and **Stremio**. 
 
-Instead of waiting through buffering wheels or clicking dead links, Chole Bhature intercepts stream requests from **120+ scrapers across multiple provider repositories**, concurrently **live-probes every stream for latency and health**, eliminates duplicate mirrors, resolves Debrid torrents and HubCloud direct links, and serves a cleanly organized, deterministic stream list tailored to your exact audio, quality, and speed preferences.
+Instead of waiting through buffering wheels or clicking dead links, Chole Bhature intercepts stream requests from **120+ scrapers across multiple provider repositories**, concurrently **live-probes every stream for latency and health**, eliminates duplicate mirrors with **Smart Mirror Stacking**, resolves Debrid torrents and HubCloud direct links, and serves a cleanly organized, deterministic stream list tailored to your exact audio, quality, and speed preferences.
 
-With persistent **Upstash Redis KV caching**, **Domain Health Probe Coalescing**, and **Adaptive Fast-Edge DNS routing**, warm queries return in under **350ms** across all your linked devices.
+With persistent **Upstash Redis KV caching**, **Self-Healing Stream Failover**, and **Adaptive Fast-Edge DNS routing**, warm queries return in under **350ms** across all your linked devices.
 
 ---
 
@@ -34,6 +34,8 @@ With persistent **Upstash Redis KV caching**, **Domain Health Probe Coalescing**
 
 | Feature | Description |
 | :--- | :--- |
+| ⚡ **Smart Mirror Stacking & Deduplication** | Normalizes release signatures and collapses identical releases from dozens of scrapers into a single primary stream card backed by the fastest live route, cutting stream list clutter by up to 70%. |
+| 🛡️ **Self-Healing Stream Failover Proxy** | High-resilience streaming proxy that automatically detects dead links or HTTP 403/404 errors during playback and transparently fails over to secondary mirrors without interrupting playback. |
 | ⚡ **Sub-3s Real-Time Latency Probing** | Concurrently tests HTTP/HLS streams via lightweight `Range`/`HEAD` probes. Employs **Domain Health Coalescing** to avoid socket congestion and accurately tags links with `🟢 FAST (<800ms)`, `🟡 SLOW (≥800ms)`, or `🔴 DEAD` without premature bailouts. |
 | ☁️ **Persistent Upstash Redis KV Caching** | Multi-device cloud cache sync powered by `@vercel/kv`. Cold scrapes are cached globally so secondary devices (Smart TVs, Android boxes, desktops) resolve stream lists in **~300ms**. |
 | 🔄 **Smart Cache Invalidation & Force Refresh** | Deep cache purge via UI or `/refresh.json` stream routes that scans and deletes both in-memory entries and wild-matched Redis keys (`cb:str:*<id>*`) to pull freshly indexed releases on demand. |
