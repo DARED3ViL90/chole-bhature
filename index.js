@@ -1,8 +1,29 @@
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
+
+// Auto-load local .env if present
+try {
+    const envPath = path.join(__dirname, '.env');
+    if (fs.existsSync(envPath)) {
+        const lines = fs.readFileSync(envPath, 'utf8').split('\n');
+        for (const line of lines) {
+            const m = line.match(/^\s*([\w.-]+)\s*=\s*(.*)?\s*$/);
+            if (m) {
+                const key = m[1];
+                let val = (m[2] || '').trim();
+                if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+                    val = val.substring(1, val.length - 1);
+                }
+                if (!process.env[key]) process.env[key] = val;
+            }
+        }
+    }
+} catch (e) {}
+
 const { createClient } = require('@vercel/kv');
 const kv = createClient({ url: process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || process.env.UPSTASH_REDIS_KV_REST_API_URL || '', token: process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || process.env.UPSTASH_REDIS_KV_REST_API_TOKEN || '' });
 const { addonBuilder, serveHTTP } = require('stremio-addon-sdk');
-const path = require('path');
 const providerLoader = require('./providerLoader');
 const { sortAndTagStreams, clearDomainLatencyCache } = require('./streamTester');
 const { setDohEnabled, setDohProvider, getDohConfig, dohHttpsAgent } = require('./dohResolver');
@@ -11,7 +32,6 @@ const { searchPencariMovie } = require('./scrapers/pencarimovie');
 const telegramRouter = require('./routes/telegramStream');
 const streamProxyRouter = require('./routes/streamProxy');
 const axios = require('axios');
-const fs = require('fs');
 const crypto = require('crypto');
 const dns = require('dns').promises;
 const net = require('net');
@@ -131,7 +151,7 @@ async function loadGlobalStateFromKV() {
             kv.get('global_analytics')
         ]);
         
-        if (kvTelemetry) telemetryMetrics = { ...telemetryMetrics, ...kvTelemetry };
+        if (kvTelemetry) Object.assign(telemetryMetrics, kvTelemetry);
         
         if (kvQuarantine && Array.isArray(kvQuarantine)) {
             for (const [k, v] of kvQuarantine) quarantineRegistry.set(k, v);
@@ -2762,9 +2782,15 @@ app.get('/debrid/:service/:apiKey/:hash', async (req, res) => {
 // Normalized hash for stream configuration to maximize Redis and in-memory cache hit rate
 function getStreamConfigHash(cfg = {}) {
     try {
+        const rawDisabled = [
+            ...(Array.isArray(cfg.disabled) ? cfg.disabled : []),
+            ...(Array.isArray(cfg.disabledProviders) ? cfg.disabledProviders : [])
+        ].map(d => String(d || '').trim().toLowerCase()).filter(Boolean);
+        const disabledSorted = [...new Set(rawDisabled)].sort();
+
         const functional = {
-            p: cfg.provider || '',
-            d: Array.isArray(cfg.disabled) ? [...cfg.disabled].sort() : [],
+            p: cfg.provider ? String(cfg.provider).trim().toLowerCase() : '',
+            d: disabledSorted,
             u: Array.isArray(cfg.urls) ? [...cfg.urls].sort() : (Array.isArray(cfg.repos) ? [...cfg.repos].sort() : (cfg.repoUrl || '')),
             tg: Boolean(cfg.enableTelegram),
             deb: cfg.debridProvider || '',
@@ -2776,7 +2802,8 @@ function getStreamConfigHash(cfg = {}) {
             langs: Array.isArray(cfg.preferredLanguages) ? [...cfg.preferredLanguages].sort() : [],
             hd: Boolean(cfg.hideDead),
             hs: Boolean(cfg.hideSlow),
-            hc: Boolean(cfg.hideCam || cfg.blockCam)
+            hc: Boolean(cfg.hideCam || cfg.blockCam),
+            hp: Boolean(cfg.hideP2P || cfg.blockP2P || cfg.disableP2P)
         };
         return crypto.createHash('md5').update(JSON.stringify(functional)).digest('hex').substring(0, 10);
     } catch (e) {
@@ -2983,7 +3010,7 @@ function createAddon(config) {
 
     const builder = new addonBuilder({
         id: addonId,
-        version: '4.4.0',
+        version: '4.5.0',
         name: addonName,
         description: 'High-Performance Stream Meta-Sorter & Discovery Hub for Nuvio & Stremio. Scrapes, verifies, filters dead links, organizes streams by speed/quality/audio, and provides curated Live TV, Indian Cinema, Trending & Anime feeds.',
         logo: addonLogo,
@@ -3090,11 +3117,30 @@ function createAddon(config) {
                 }
             }
             
-            // Filter providers
+            // Filter providers (Robust case-insensitive matching across name and ID)
+            const rawDisabled = [
+                ...(Array.isArray(config.disabled) ? config.disabled : []),
+                ...(Array.isArray(config.disabledProviders) ? config.disabledProviders : [])
+            ];
+            const disabledSet = new Set(
+                rawDisabled.map(d => String(d || '').trim().toLowerCase()).filter(Boolean)
+            );
+
             if (config.provider) {
-                allProviders = allProviders.filter(p => p.name === config.provider);
-            } else if (config.disabled && Array.isArray(config.disabled)) {
-                allProviders = allProviders.filter(p => !config.disabled.includes(p.name));
+                const target = String(config.provider).trim().toLowerCase();
+                allProviders = allProviders.filter(p => 
+                    (p.name && p.name.toLowerCase() === target) || 
+                    (p.id && p.id.toLowerCase() === target)
+                );
+            } else if (disabledSet.size > 0) {
+                allProviders = allProviders.filter(p => {
+                    const nameLower = p.name ? p.name.toLowerCase().trim() : '';
+                    const idLower = p.id ? p.id.toLowerCase().trim() : '';
+                    const isDisabled = disabledSet.has(nameLower) || 
+                                       disabledSet.has(idLower) ||
+                                       [...disabledSet].some(d => d && (d === nameLower || d === idLower || nameLower.includes(d) || idLower.includes(d)));
+                    return !isDisabled;
+                });
             }
 
             let allStreams = [];
@@ -3109,11 +3155,11 @@ function createAddon(config) {
             // We leave ~8s buffer for speed-testing after scraping completes.
             const isVercel = typeof process !== 'undefined' && Boolean(process.env.VERCEL);
             const PROVIDER_TIMEOUT_MS = isVercel 
-                ? (isEcoMode ? 6000 : 8000)   // Generous Vercel execution: 8s so all scrapers finish without dropping links
-                : (isEcoMode ? 8000 : 10000); // Render/local: 10s
+                ? (isEcoMode ? 4000 : 5500)   // Responsive: 5.5s so scrapers finish quickly without hanging
+                : (isEcoMode ? 5000 : 6500); // Render/local: 6.5s
             const SCRAPE_DEADLINE_MS = isVercel 
-                ? (isEcoMode ? 6500 : 8500) 
-                : (isEcoMode ? 8500 : 10500);
+                ? (isEcoMode ? 4500 : 6000) 
+                : (isEcoMode ? 5500 : 7000);
 
             const tgScrapePromise = (async () => {
                 if (Boolean(config.enableTelegram) && (!config.disabled || (!config.disabled.includes('Telegram') && !config.disabled.includes('Telegram (PencariMovie)')))) {
@@ -3235,7 +3281,7 @@ function createAddon(config) {
             const isUnreleased = Boolean(type === 'movie' && targetYear && targetYear > currentYear);
 
             const sortedAndTaggedStreams = await sortAndTagStreams(allStreams, {
-                maxTestDuration: Math.max(5000, 25000 - scrapeDurationMs), // Generous duration to accurately probe stream speeds
+                maxTestDuration: Math.min(3000, Math.max(1500, 9500 - scrapeDurationMs)), // Fast speed testing: max 3s probe duration
                 target: {
                     title: mediaMeta?.title || '',
                     originalTitle: mediaMeta?.originalTitle || '',
@@ -3910,7 +3956,7 @@ if (!process.env.VERCEL) {
     const server = app.listen(PORT, '0.0.0.0', () => {
         console.log(`
 ========================================================================
-  🌶️  CHOLE BHATURE • Meta-Sorter & Priority Engine v4.4.0
+  🌶️  CHOLE BHATURE • Meta-Sorter & Priority Engine v4.5.0
   ⚡  Created by SA7ANI | https://github.com/SA7ANI/chole-bhature
   🛡️  Licensed under GNU AGPL-3.0 • Attribution Required
 ========================================================================

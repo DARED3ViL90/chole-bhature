@@ -256,6 +256,8 @@ function ingestStream(stream, config = {}) {
         isDebridCached: isDebridCached,
         originalProvider: originalProvider,
         providers: finalProviders,
+        mirrorCount: stream.mirrorCount || (Array.isArray(stream.mirrors) ? stream.mirrors.length : 1),
+        mirrors: stream.mirrors || [],
         behaviorHints: {
             ...(stream.behaviorHints || {}),
             filename: behaviorFilename || cleanCand || candidateFilename

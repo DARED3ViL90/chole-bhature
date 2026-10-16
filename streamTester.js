@@ -4,7 +4,7 @@ const { parseTorrentTitle, cleanReleaseNoise } = require('./torrentParser');
 const { ingestStream, normalizeInfoHash, parseSizeToBytes, formatBytesToSize, extractCleanProvider } = require('./streamIngest');
 const { formatStreamCard, formatProviderChain } = require('./streamFormatter');
 
-const TIMEOUT_MS = (typeof process !== 'undefined' && process.env.VERCEL) ? 800 : 1200;
+const TIMEOUT_MS = 800;
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
 // High-speed domain latency memoization to avoid probing identical CDNs 50+ times
@@ -294,14 +294,39 @@ function getStreamFingerprint(stream) {
                 return `url:${parsed.protocol}//${parsed.host}${parsed.pathname}${cleanQuery}`.toLowerCase();
             }
         } catch (e) {}
-        return `raw:${rawUrl.trim().toLowerCase()}`;
     }
 
-    // 3. Fallback: Release signature match (identical normalized title + resolution + size)
+    // 3. Smart Semantic Mirror Fingerprinting (for Direct/Hoster links across different CDNs / mirrors)
     const meta = parseStreamMetadata(stream);
-    const titleNorm = (stream.title || stream.description || stream.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (titleNorm && meta.resolution && meta.size) {
-        return `release:${titleNorm}:${meta.resolution}:${meta.size}`;
+    const candidateTitle = meta.cleanTitle || (stream.behaviorHints && stream.behaviorHints.filename) || stream.title || stream.description || stream.name || '';
+    const cleanTitle = String(candidateTitle)
+        .toLowerCase()
+        .replace(/^(?:\[[^\]]+\]|\([^\)]+\)|www\.[a-z0-9.-]+\.[a-z]{2,4}[\s._-]*)/gi, '')
+        .replace(/[^a-z0-9]/g, '');
+
+    const res = meta.resolution || 'unknown';
+    const quality = (meta.quality || '').toLowerCase();
+    const group = (meta.releaseGroup || '').toLowerCase();
+    const seasonEp = meta.season ? `s${String(meta.season).padStart(2, '0')}e${String(meta.episode || 0).padStart(2, '0')}` : '';
+
+    let sizeBucket = '';
+    if (meta.sizeBytes && meta.sizeBytes > 1024 * 1024) {
+        // Round to nearest 150MB chunk so minor byte variances match across mirror providers
+        const chunk150mb = 150 * 1024 * 1024;
+        sizeBucket = `b${Math.round(meta.sizeBytes / chunk150mb) * 150}m`;
+    }
+
+    if (cleanTitle && res !== 'unknown') {
+        if (group && group !== 'nuvio' && group !== 'flux') {
+            return `mirror:${cleanTitle}:${seasonEp}:${res}:${quality}:${group}`;
+        }
+        if (sizeBucket) {
+            return `mirror:${cleanTitle}:${seasonEp}:${res}:${quality}:${sizeBucket}`;
+        }
+    }
+
+    if (rawUrl && typeof rawUrl === 'string') {
+        return `raw:${rawUrl.trim().toLowerCase()}`;
     }
 
     return null;
@@ -319,7 +344,12 @@ function deduplicateAndMergeStreams(streams, enabled = true) {
         const pName = cleanProviderName(stream.originalProvider || stream.name);
 
         if (!fingerprint) {
-            const copy = { ...stream, providers: pName ? [pName] : ['Stream'] };
+            const copy = { 
+                ...stream, 
+                providers: pName ? [pName] : ['Stream'],
+                mirrors: stream.url ? [{ url: stream.url, provider: pName, headers: stream.headers }] : [],
+                mirrorCount: 1
+            };
             result.push(copy);
             continue;
         }
@@ -334,6 +364,19 @@ function deduplicateAndMergeStreams(streams, enabled = true) {
             if (pName && !existing.providers.includes(pName)) {
                 existing.providers.push(pName);
             }
+
+            // Maintain stacked mirror list for Smart Mirror Stacking & Failover
+            if (!existing.mirrors) {
+                existing.mirrors = [{ url: existing.url, provider: existing.providers[0] || 'Stream', headers: existing.headers }];
+            }
+            if (stream.url && !existing.mirrors.some(m => m.url === stream.url)) {
+                existing.mirrors.push({
+                    url: stream.url,
+                    provider: pName || 'Mirror',
+                    headers: stream.headers
+                });
+            }
+            existing.mirrorCount = existing.mirrors.length;
 
             // Merge seeders (preserve highest seeders count)
             const metaExisting = parseStreamMetadata(existing);
@@ -356,7 +399,12 @@ function deduplicateAndMergeStreams(streams, enabled = true) {
                 existing.behaviorHints = { ...(existing.behaviorHints || {}), ...(stream.behaviorHints || {}) };
             }
         } else {
-            const copy = { ...stream, providers: pName ? [pName] : ['Stream'] };
+            const copy = { 
+                ...stream, 
+                providers: pName ? [pName] : ['Stream'],
+                mirrors: stream.url ? [{ url: stream.url, provider: pName, headers: stream.headers }] : [],
+                mirrorCount: 1
+            };
             mergedMap.set(fingerprint, copy);
             result.push(copy);
         }
@@ -751,6 +799,7 @@ async function testStream(stream, showSeeders = true, config = {}) {
         // Specific per-stream check for HubCloud links (detect if this specific file was removed)
         if (stream.url.includes('hubcloud.')) {
             try {
+                const startTime = Date.now();
                 const hcRes = await axios.get(stream.url, { 
                     timeout: TIMEOUT_MS, 
                     headers: probeHeaders,
@@ -760,6 +809,10 @@ async function testStream(stream, showSeeders = true, config = {}) {
                 });
                 const data = typeof hcRes.data === 'string' ? hcRes.data.toLowerCase() : '';
                 if (data.includes('file deleted') || data.includes('file not found') || data.includes('file was deleted') || data.includes('page not found') || hcRes.status === 404 || hcRes.status === 410) {
+                    if (origin) {
+                        domainLatencyPending.delete(origin);
+                        if (resolveDomainProbe) resolveDomainProbe({ latency: 99999, isDead: true, statusCategory: 'dead' });
+                    }
                     const labels = formatStreamLabels(stream, 99999, false, true, showSeeders, config);
                     return {
                         ...stream,
@@ -773,6 +826,28 @@ async function testStream(stream, showSeeders = true, config = {}) {
                         _preparsedMeta: initialMeta
                     };
                 }
+
+                // If file is valid and alive, resolve latency immediately without redundant HEAD probe
+                const hcLatency = Math.max(10, Date.now() - startTime);
+                const statusCategory = hcLatency < 800 ? 'fast' : 'slow';
+                const entry = { latency: hcLatency, isDead: false, statusCategory };
+                if (origin) {
+                    domainLatencyCache.set(origin, entry);
+                    domainLatencyPending.delete(origin);
+                    if (resolveDomainProbe) resolveDomainProbe(entry);
+                }
+                const labels = formatStreamLabels(stream, hcLatency, false, false, showSeeders, config);
+                return {
+                    ...stream,
+                    name: labels.name,
+                    title: labels.title, description: labels.description,
+                    latency: hcLatency,
+                    isDead: false,
+                    statusCategory: statusCategory,
+                    originalProvider: providerName,
+                    _rawStream: rawSnapshot,
+                    _preparsedMeta: initialMeta
+                };
             } catch (err) { 
                 // Keep stream alive on transient error
             }
@@ -1195,8 +1270,9 @@ async function sortAndTagStreams(streams, config = {}, providerAnalytics) {
 
     let testedStreams;
     if (config.maxTestDuration) {
+        let globalTimer;
         const globalTimeoutPromise = new Promise(resolve => {
-            setTimeout(() => {
+            globalTimer = setTimeout(() => {
                 console.warn(`[StreamTester] Global testing timeout reached (${config.maxTestDuration}ms). Bailing out to prevent 504.`);
                 const mixed = uniqueStreams.map(s => {
                     if (s._testedResult) return s._testedResult; // Use real result if finished
@@ -1210,6 +1286,7 @@ async function sortAndTagStreams(streams, config = {}, providerAnalytics) {
             }, config.maxTestDuration);
         });
         testedStreams = await Promise.race([testingPromise, globalTimeoutPromise]);
+        if (globalTimer) clearTimeout(globalTimer);
     } else {
         testedStreams = await testingPromise;
     }
@@ -1232,6 +1309,30 @@ async function sortAndTagStreams(streams, config = {}, providerAnalytics) {
 
     // Filter
     let filteredStreams = testedStreams;
+
+    // Safety filter: Strictly purge streams from disabled scrapers that may have leaked
+    const rawDisabled = [
+        ...(Array.isArray(config && config.disabled) ? config.disabled : []),
+        ...(Array.isArray(config && config.disabledProviders) ? config.disabledProviders : [])
+    ].map(d => String(d || '').trim().toLowerCase()).filter(Boolean);
+    if (rawDisabled.length > 0) {
+        filteredStreams = filteredStreams.filter(s => {
+            const raw = s._rawStream || {};
+            const textToCheck = [
+                s.originalProvider,
+                s.provider,
+                s.name,
+                s.title,
+                raw.provider,
+                raw.name,
+                raw.title,
+                Array.isArray(s.providers) ? s.providers.join(' ') : ''
+            ].filter(Boolean).join(' ').toLowerCase();
+
+            return !rawDisabled.some(d => d && textToCheck.includes(d));
+        });
+    }
+
     if (config && config.hideDead) {
         filteredStreams = filteredStreams.filter(s => s.statusCategory !== 'dead');
     }
@@ -1245,9 +1346,17 @@ async function sortAndTagStreams(streams, config = {}, providerAnalytics) {
             return !meta.isCam;
         });
     }
+    // Auto-Hide P2P Torrent streams (uncached magnets)
+    if (config && (config.hideP2P || config.blockP2P || config.disableP2P)) {
+        filteredStreams = filteredStreams.filter(s => {
+            const isMagnet = (s.url && s.url.startsWith('magnet:')) || Boolean(s.infoHash);
+            const isP2P = Boolean(s.isP2P || isMagnet);
+            return !isP2P || Boolean(s.isDebridCached);
+        });
+    }
 
-    // Safety fallback: if strict filters leave 0 streams, retain all tested streams
-    if (filteredStreams.length === 0 && testedStreams.length > 0) {
+    // Safety fallback: if speed filters leave 0 streams, retain all tested streams (never restore blocked scrapers/P2P)
+    if (filteredStreams.length === 0 && testedStreams.length > 0 && !config?.hideP2P && !config?.blockP2P && rawDisabled.length === 0) {
         filteredStreams = testedStreams;
     }
 
@@ -1479,6 +1588,27 @@ async function sortAndTagStreams(streams, config = {}, providerAnalytics) {
                     const protocol = config.addonProtocol || 'https';
                     stremioStream.url = `${protocol}://${config.addonHost}/debrid/${config.debridProvider}/${config.debridApiKey}/${hash}`;
                     delete stremioStream.infoHash;
+                }
+            }
+        }
+
+        // Smart Mirror Stacking: Wrap multiple mirror URLs with the Self-Healing Failover Proxy
+        if (Array.isArray(stremioStream.mirrors) && stremioStream.mirrors.length > 1 && stremioStream.url && stremioStream.url.startsWith('http')) {
+            const fallbackUrls = stremioStream.mirrors
+                .map(m => m.url)
+                .filter(u => u && u !== stremioStream.url && typeof u === 'string' && u.startsWith('http'));
+
+            if (fallbackUrls.length > 0) {
+                stremioStream.mirrorUrls = fallbackUrls;
+                stremioStream.behaviorHints = {
+                    ...(stremioStream.behaviorHints || {}),
+                    mirrors: fallbackUrls,
+                    mirrorCount: stremioStream.mirrors.length
+                };
+
+                if (config.addonHost) {
+                    const protocol = config.addonProtocol || 'https';
+                    stremioStream.url = `${protocol}://${config.addonHost}/proxy/stream?url=${encodeURIComponent(stremioStream.url)}&fallbacks=${encodeURIComponent(JSON.stringify(fallbackUrls))}`;
                 }
             }
         }

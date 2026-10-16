@@ -3,15 +3,31 @@ const axios = require('axios');
 const router = express.Router();
 
 /**
- * Universal Stream Proxy with HTTP Range (206 Partial Content) support
- * Injects required Referer and User-Agent headers so Cloudflare workers and protected CDNs
- * stream seamlessly to Stremio, ExoPlayer, and Nuvio without 403 blocks or loading hangs.
+ * Universal Stream Proxy with HTTP Range (206 Partial Content) support & Self-Healing Auto-Failover
+ * Injects required Referer and User-Agent headers and automatically falls back to secondary mirrors
+ * if a primary video stream returns HTTP 403/404/5xx or times out.
  */
 router.get('/', async (req, res) => {
     const targetUrl = req.query.url;
     if (!targetUrl) {
         return res.status(400).send('Missing target stream url parameter');
     }
+
+    // Parse fallback mirrors for Self-Healing Stream Failover
+    let fallbackUrls = [];
+    if (req.query.fallbacks) {
+        try {
+            if (req.query.fallbacks.startsWith('[')) {
+                fallbackUrls = JSON.parse(req.query.fallbacks);
+            } else {
+                fallbackUrls = req.query.fallbacks.split(',').map(u => decodeURIComponent(u.trim())).filter(Boolean);
+            }
+        } catch (_) {
+            fallbackUrls = [];
+        }
+    }
+
+    const candidateUrls = [targetUrl, ...fallbackUrls.filter(u => u && u !== targetUrl)];
 
     let customHeaders = {};
     try {
@@ -30,50 +46,63 @@ router.get('/', async (req, res) => {
         clientHeaders['Range'] = req.headers.range;
     }
 
-    try {
-        const remoteRes = await axios({
-            method: 'get',
-            url: targetUrl,
-            headers: clientHeaders,
-            responseType: 'stream',
-            timeout: 12000,
-            maxRedirects: 5,
-            validateStatus: (status) => status < 400
-        });
+    let lastError = null;
+    for (let i = 0; i < candidateUrls.length; i++) {
+        const urlToTry = candidateUrls[i];
+        try {
+            const remoteRes = await axios({
+                method: 'get',
+                url: urlToTry,
+                headers: clientHeaders,
+                responseType: 'stream',
+                timeout: candidateUrls.length > 1 ? 8000 : 12000,
+                maxRedirects: 5,
+                validateStatus: (status) => status < 400
+            });
 
-        res.status(remoteRes.status);
-        const copyHeaders = [
-            'content-type',
-            'content-length',
-            'content-range',
-            'accept-ranges',
-            'content-disposition',
-            'cache-control'
-        ];
-        for (const h of copyHeaders) {
-            if (remoteRes.headers[h]) {
-                res.setHeader(h, remoteRes.headers[h]);
+            if (i > 0) {
+                console.log(`[StreamProxy] Auto-healed stream using mirror ${i}/${candidateUrls.length - 1}: ${urlToTry.substring(0, 60)}...`);
             }
-        }
-        res.setHeader('Access-Control-Allow-Origin', '*');
 
-        if (process.env.VERCEL && !customHeaders['Referer'] && !customHeaders['referer'] && !customHeaders['Origin'] && !customHeaders['origin']) {
-            // Vercel Serverless limits execution time (10s-60s) for unbounded media.
-            // Only redirect directly when custom referer/origin headers are NOT required.
-            return res.redirect(302, targetUrl);
-        }
-
-        remoteRes.data.pipe(res);
-
-        req.on('close', () => {
-            if (remoteRes.data && typeof remoteRes.data.destroy === 'function') {
-                remoteRes.data.destroy();
+            res.status(remoteRes.status);
+            const copyHeaders = [
+                'content-type',
+                'content-length',
+                'content-range',
+                'accept-ranges',
+                'content-disposition',
+                'cache-control'
+            ];
+            for (const h of copyHeaders) {
+                if (remoteRes.headers[h]) {
+                    res.setHeader(h, remoteRes.headers[h]);
+                }
             }
-        });
-    } catch (err) {
-        // Fallback: Redirect client directly if proxy stream fails
-        res.redirect(302, targetUrl);
+            res.setHeader('Access-Control-Allow-Origin', '*');
+
+            if (process.env.VERCEL && !customHeaders['Referer'] && !customHeaders['referer'] && !customHeaders['Origin'] && !customHeaders['origin'] && candidateUrls.length === 1) {
+                // Vercel Serverless limits execution time for unbounded media.
+                // Only redirect directly when custom referer/origin headers are NOT required and no fallbacks exist.
+                return res.redirect(302, urlToTry);
+            }
+
+            remoteRes.data.pipe(res);
+
+            req.on('close', () => {
+                if (remoteRes.data && typeof remoteRes.data.destroy === 'function') {
+                    remoteRes.data.destroy();
+                }
+            });
+            return; // Successfully streamed!
+        } catch (err) {
+            lastError = err;
+            console.warn(`[StreamProxy] Mirror attempt ${i + 1}/${candidateUrls.length} failed (${err.message}) for: ${urlToTry.substring(0, 60)}...`);
+            // Continue loop to try next fallback mirror
+        }
     }
+
+    // Fallback: Redirect client directly if all candidate mirrors fail
+    res.redirect(302, targetUrl);
 });
 
 module.exports = router;
