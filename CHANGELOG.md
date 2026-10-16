@@ -9,9 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [4.5.0] - 2026-10-16
 
-### ⚡ Speed & Instant Playback Innovations
+### ⚡ Speed, Stream Resilience & Instant Playback Innovations
 
-#### 1. Smart Mirror Stacking & Semantic Stream Deduplication (`streamTester.js`)
+#### 1. P2P Torrent Magnet Filter & Provider Disabling Robustness (`index.js`, `providerLoader.js`, `streamTester.js`)
+* **`hideP2P` / Un-Cached Magnet Block**:
+  - Added dedicated toggle to completely filter out un-cached peer-to-peer torrent magnets.
+  - Ensures users without Debrid or VPNs only see 100% direct HTTP/HLS or cached streams.
+* **Case-Insensitive Provider ID & Name Matching**:
+  - Normalized `disabled` and `disabledProviders` lists to lowercase.
+  - Compares against both `p.name` and `p.id` (e.g. `Torrentio` / `torrentio`), guaranteeing that disabled sources are strictly blocked across all layers (loader, router, and tester).
+
+#### 2. Smart Mirror Stacking & Semantic Stream Deduplication (`streamTester.js`)
 * **Semantic Release Fingerprinting Engine**:
   - Implemented advanced multi-tier release matching in `getStreamFingerprint`:
     - Accurately identifies mirrors of the same release across dozens of scrapers using canonical title normalization, season/episode keys (`s01e01`), resolution tiers (`2160p`, `1080p`, `720p`), release quality (`REMUX`, `BluRay`, `WEB-DL`), video codecs (`HEVC`, `AV1`, `x264`), release groups (e.g., `FLUX`, `QxR`, `YTS`, `Pahe`), and rounded 150MB byte-size buckets.

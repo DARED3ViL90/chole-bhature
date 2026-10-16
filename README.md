@@ -34,6 +34,7 @@ With persistent **Upstash Redis KV caching**, **Self-Healing Stream Failover**, 
 
 | Feature | Description |
 | :--- | :--- |
+| 🧲 **P2P Un-Cached Magnet Block / Filter** | Toggle un-cached P2P torrent magnets off completely with `hideP2P`, showing exclusively cached Debrid (`[RD+]`, `[TB+]`) and direct HTTP/HLS streams. |
 | ⚡ **Smart Mirror Stacking & Deduplication** | Normalizes release signatures and collapses identical releases from dozens of scrapers into a single primary stream card backed by the fastest live route, cutting stream list clutter by up to 70%. |
 | 🛡️ **Self-Healing Stream Failover Proxy** | High-resilience streaming proxy that automatically detects dead links or HTTP 403/404 errors during playback and transparently fails over to secondary mirrors without interrupting playback. |
 | ⚡ **Sub-3s Real-Time Latency Probing** | Concurrently tests HTTP/HLS streams via lightweight `Range`/`HEAD` probes. Employs **Domain Health Coalescing** to avoid socket congestion and accurately tags links with `🟢 FAST (<800ms)`, `🟡 SLOW (≥800ms)`, or `🔴 DEAD` without premature bailouts. |
