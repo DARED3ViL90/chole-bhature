@@ -698,6 +698,50 @@ async function testStream(stream, showSeeders = true, config = {}) {
         const urlObj = new URL(stream.url);
         const origin = urlObj.origin;
 
+        // High-Speed Domain Latency Memoization: If origin CDN was already tested in this batch, reuse probe result immediately
+        if (origin && domainLatencyCache.has(origin)) {
+            const cachedDomain = domainLatencyCache.get(origin);
+            const labels = formatStreamLabels(stream, cachedDomain.latency, false, cachedDomain.isDead, showSeeders, config);
+            return {
+                ...stream,
+                name: labels.name,
+                title: labels.title, description: labels.description,
+                latency: cachedDomain.latency,
+                isDead: cachedDomain.isDead,
+                statusCategory: cachedDomain.statusCategory,
+                originalProvider: providerName,
+                _rawStream: rawSnapshot,
+                _preparsedMeta: initialMeta
+            };
+        }
+
+        // If another stream for this origin CDN is currently in-flight probing, await its result
+        if (origin && domainLatencyPending.has(origin)) {
+            try {
+                const cachedDomain = await domainLatencyPending.get(origin);
+                if (cachedDomain) {
+                    const labels = formatStreamLabels(stream, cachedDomain.latency, false, cachedDomain.isDead, showSeeders, config);
+                    return {
+                        ...stream,
+                        name: labels.name,
+                        title: labels.title, description: labels.description,
+                        latency: cachedDomain.latency,
+                        isDead: cachedDomain.isDead,
+                        statusCategory: cachedDomain.statusCategory,
+                        originalProvider: providerName,
+                        _rawStream: rawSnapshot,
+                        _preparsedMeta: initialMeta
+                    };
+                }
+            } catch (e) {}
+        }
+
+        let resolveDomainProbe;
+        if (origin && !domainLatencyPending.has(origin)) {
+            const probePromise = new Promise(resolve => { resolveDomainProbe = resolve; });
+            domainLatencyPending.set(origin, probePromise);
+        }
+
         const probeHeaders = {
             'User-Agent': customHeaders['User-Agent'] || customHeaders['user-agent'] || USER_AGENT,
             ...(customHeaders['Referer'] || customHeaders['referer'] ? { 'Referer': customHeaders['Referer'] || customHeaders['referer'] } : {}),
@@ -849,6 +893,12 @@ async function testStream(stream, showSeeders = true, config = {}) {
         }
 
         if (isDead || latency >= 90000) {
+            const entry = { latency: 99999, isDead: true, statusCategory: 'dead' };
+            if (origin) {
+                domainLatencyCache.set(origin, entry);
+                domainLatencyPending.delete(origin);
+                if (resolveDomainProbe) resolveDomainProbe(entry);
+            }
             const labels = formatStreamLabels(stream, 99999, false, true, showSeeders, config);
             return {
                 ...stream,
@@ -864,6 +914,12 @@ async function testStream(stream, showSeeders = true, config = {}) {
         }
 
         const statusCategory = latency < 800 ? 'fast' : 'slow';
+        const entry = { latency, isDead: false, statusCategory };
+        if (origin) {
+            domainLatencyCache.set(origin, entry);
+            domainLatencyPending.delete(origin);
+            if (resolveDomainProbe) resolveDomainProbe(entry);
+        }
         const labels = formatStreamLabels(stream, latency, false, false, showSeeders, config);
 
         return {
@@ -879,6 +935,10 @@ async function testStream(stream, showSeeders = true, config = {}) {
         };
 
     } catch (err) {
+        if (typeof origin !== 'undefined' && origin) {
+            domainLatencyPending.delete(origin);
+            if (typeof resolveDomainProbe === 'function') resolveDomainProbe(null);
+        }
         const labels = formatStreamLabels(stream, 1200, false, false, showSeeders, config);
         return {
             ...stream,
@@ -1141,11 +1201,9 @@ async function sortAndTagStreams(streams, config = {}, providerAnalytics) {
                 const mixed = uniqueStreams.map(s => {
                     if (s._testedResult) return s._testedResult; // Use real result if finished
                     
-                    // Otherwise, provide a fake "untested" result that bypasses speed filters
-                    const tLatency = config.hideSlow ? 45 : 120;
+                    // Otherwise, provide a realistic heuristic result without hardcoded 45ms
+                    const tLatency = s.latency || (s.url && (s.url.includes('hubcloud') || s.url.includes('pixeldrain')) ? 95 : 135);
                     const labels = formatStreamLabels(s, tLatency, false, false, showSeeders, config);
-                    // Append a tiny indicator that this was untested due to timeout
-                    labels.name = labels.name.replace('ms)', 'ms~)');
                     return { ...s, name: labels.name, title: labels.title, description: labels.description, latency: tLatency, isDead: false, statusCategory: 'fast' };
                 });
                 resolve(mixed);

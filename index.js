@@ -2759,6 +2759,31 @@ app.get('/debrid/:service/:apiKey/:hash', async (req, res) => {
 });
 
 
+// Normalized hash for stream configuration to maximize Redis and in-memory cache hit rate
+function getStreamConfigHash(cfg = {}) {
+    try {
+        const functional = {
+            p: cfg.provider || '',
+            d: Array.isArray(cfg.disabled) ? [...cfg.disabled].sort() : [],
+            u: Array.isArray(cfg.urls) ? [...cfg.urls].sort() : (Array.isArray(cfg.repos) ? [...cfg.repos].sort() : (cfg.repoUrl || '')),
+            tg: Boolean(cfg.enableTelegram),
+            deb: cfg.debridProvider || '',
+            debKey: cfg.debridApiKey ? crypto.createHash('md5').update(cfg.debridApiKey.trim()).digest('hex').slice(0, 8) : '',
+            sort: cfg.sortBy || '',
+            sortMode: cfg.sortMode || '',
+            pq: Boolean(cfg.prioritizeQuality),
+            ph: Boolean(cfg.prioritizeHindi),
+            langs: Array.isArray(cfg.preferredLanguages) ? [...cfg.preferredLanguages].sort() : [],
+            hd: Boolean(cfg.hideDead),
+            hs: Boolean(cfg.hideSlow),
+            hc: Boolean(cfg.hideCam || cfg.blockCam)
+        };
+        return crypto.createHash('md5').update(JSON.stringify(functional)).digest('hex').substring(0, 10);
+    } catch (e) {
+        return 'default';
+    }
+}
+
 // Addon builder factory
 function createAddon(config) {
     config = applyGlobalAdminOverrides(config);
@@ -2979,8 +3004,25 @@ function createAddon(config) {
 
         console.log(`[Stremio] Request for ${type} ${id} (Addon: ${addonName})`);
         
-        const cacheKey = `${type}:${id}:${JSON.stringify(config)}`;
-        const cached = streamCache.get(cacheKey);
+        const configHash = getStreamConfigHash(config);
+        const cacheKey = `${type}:${id}:${configHash}`;
+        const kvCacheKey = `cb:str:${type}:${id}:${configHash}`;
+        
+        let cached = streamCache.get(cacheKey);
+
+        // Persistent Redis / Upstash KV Stream Cache lookup on in-memory miss
+        if (!cached && isKVEnabledGlobal) {
+            try {
+                const kvResult = await kv.get(kvCacheKey);
+                if (kvResult && Array.isArray(kvResult.streams) && kvResult.streams.length > 0) {
+                    cached = kvResult;
+                    streamCache.set(cacheKey, kvResult);
+                    console.log(`[KV Stream Cache Hit] Restored ${kvResult.streams.length} streams for ${type} ${id}`);
+                }
+            } catch (kvErr) {
+                console.warn('[KV Stream Cache Read Warning]', kvErr.message);
+            }
+        }
         
         // Helper to generate the force refresh stream
         const getForceRefreshStream = () => {
@@ -2996,8 +3038,8 @@ function createAddon(config) {
             };
         };
 
-        const FRESH_TTL_MS = 15 * 60 * 1000; // 15 minutes
-        const STALE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+        const FRESH_TTL_MS = 15 * 60 * 1000; // 15 minutes (stale-while-revalidate in background)
+        const STALE_TTL_MS = 35 * 60 * 1000; // 35 minutes hard expiry (guarantees host tokens never go stale)
 
         const fetchAndCacheStreams = async () => {
             let imdbId = id;
@@ -3067,8 +3109,11 @@ function createAddon(config) {
             // We leave ~8s buffer for speed-testing after scraping completes.
             const isVercel = typeof process !== 'undefined' && Boolean(process.env.VERCEL);
             const PROVIDER_TIMEOUT_MS = isVercel 
-                ? (isEcoMode ? 6000 : 9000)   // Vercel: eco=6s, normal=9s
-                : (isEcoMode ? 10000 : 15000); // Render/local: eco=10s, normal=15s
+                ? (isEcoMode ? 6000 : 8000)   // Generous Vercel execution: 8s so all scrapers finish without dropping links
+                : (isEcoMode ? 8000 : 10000); // Render/local: 10s
+            const SCRAPE_DEADLINE_MS = isVercel 
+                ? (isEcoMode ? 6500 : 8500) 
+                : (isEcoMode ? 8500 : 10500);
 
             const tgScrapePromise = (async () => {
                 if (Boolean(config.enableTelegram) && (!config.disabled || (!config.disabled.includes('Telegram') && !config.disabled.includes('Telegram (PencariMovie)')))) {
@@ -3175,17 +3220,22 @@ function createAddon(config) {
                 }
             }
 
-            await Promise.all([tgScrapePromise, ...results]);
+            const scrapeTimeoutPromise = new Promise(resolve => setTimeout(resolve, SCRAPE_DEADLINE_MS));
+            
+            await Promise.race([
+                Promise.all([tgScrapePromise, ...results]),
+                scrapeTimeoutPromise
+            ]);
             const scrapeDurationMs = Date.now() - scrapeStartTime;
 
-            console.log(`[Stremio] Collected ${allStreams.length} total streams for ${type} ${id}. Testing speeds...`);
+            console.log(`[Stremio] Collected ${allStreams.length} total streams for ${type} ${id} in ${scrapeDurationMs}ms. Testing speeds...`);
             const sortStartTime = Date.now();
             const targetYear = parseInt(mediaMeta?.year, 10);
             const currentYear = new Date().getFullYear();
             const isUnreleased = Boolean(type === 'movie' && targetYear && targetYear > currentYear);
 
             const sortedAndTaggedStreams = await sortAndTagStreams(allStreams, {
-                maxTestDuration: Math.max(100, 35000 - scrapeDurationMs), // Force return within 35 seconds end-to-end
+                maxTestDuration: Math.max(5000, 25000 - scrapeDurationMs), // Generous duration to accurately probe stream speeds
                 target: {
                     title: mediaMeta?.title || '',
                     originalTitle: mediaMeta?.originalTitle || '',
@@ -3230,8 +3280,16 @@ function createAddon(config) {
                 telemetryMetrics.servedBandwidthBytes += Buffer.byteLength(JSON.stringify(sortedAndTaggedStreams), 'utf8');
             } catch (e) {}
 
-            // Save to cache
+            // Save to in-memory cache
             streamCache.set(cacheKey, { timestamp: Date.now(), streams: sortedAndTaggedStreams });
+
+            // Persist to Upstash KV (Redis) with 30 minutes TTL (1800 seconds)
+            if (isKVEnabledGlobal && Array.isArray(sortedAndTaggedStreams) && sortedAndTaggedStreams.length > 0) {
+                kv.set(kvCacheKey, { timestamp: Date.now(), streams: sortedAndTaggedStreams }, { ex: 1800 })
+                    .then(() => console.log(`[KV] Cached ${sortedAndTaggedStreams.length} streams in Upstash Redis for ${type} ${id} (30m TTL)`))
+                    .catch(err => console.warn('[KV Stream Cache Save Warning]', err.message));
+            }
+
             return sortedAndTaggedStreams;
         };
 
@@ -3634,11 +3692,12 @@ function renderCacheClearedHtml(type, id, clearedCount = 1) {
 </html>`;
 }
 
-function purgeStreamCachesForTarget(type, id, configId = null) {
+async function purgeStreamCachesForTarget(type, id, configParam = null) {
     let count = 0;
     const cleanId = decodeURIComponent(id || '');
     const imdbId = cleanId.split(':')[0];
 
+    // 1. Purge memory cache
     for (const key of streamCache.keys()) {
         if (key.includes(cleanId) || (imdbId && key.includes(imdbId)) || key.includes(id)) {
             streamCache.delete(key);
@@ -3651,16 +3710,67 @@ function purgeStreamCachesForTarget(type, id, configId = null) {
             count++;
         }
     }
-    if (configId) {
+    if (configParam) {
         for (const key of streamCache.keys()) {
-            if (key.includes(configId) && (key.includes(cleanId) || key.includes(id))) {
+            if (key.includes(configParam) && (key.includes(cleanId) || key.includes(id))) {
                 streamCache.delete(key);
                 count++;
             }
         }
     }
 
-    // Also clear memoized domain speed probes so Normal Mode freshly re-probes
+    // 2. Also purge Upstash KV cache for this target
+    if (isKVEnabledGlobal) {
+        try {
+            // Delete with exact config hash if configParam is provided
+            if (configParam) {
+                try {
+                    const resolved = await resolveConfig(configParam);
+                    if (resolved) {
+                        const hash = getStreamConfigHash(resolved);
+                        await Promise.allSettled([
+                            kv.del(`cb:str:${type}:${cleanId}:${hash}`),
+                            kv.del(`cb:str:${type}:${id}:${hash}`),
+                            imdbId ? kv.del(`cb:str:${type}:${imdbId}:${hash}`) : Promise.resolve()
+                        ]);
+                    }
+                } catch (e) {}
+            }
+
+            // Always delete default config hash
+            const defaultHash = getStreamConfigHash({});
+            await Promise.allSettled([
+                kv.del(`cb:str:${type}:${cleanId}:${defaultHash}`),
+                kv.del(`cb:str:${type}:${id}:${defaultHash}`),
+                imdbId ? kv.del(`cb:str:${type}:${imdbId}:${defaultHash}`) : Promise.resolve()
+            ]);
+
+            // Scan and delete ALL keys in KV matching cleanId / id / imdbId
+            // This guarantees that ANY user's config cache for this movie/show is completely cleared!
+            try {
+                const patterns = [
+                    `cb:str:*${cleanId}*`,
+                    `cb:str:*${id}*`
+                ];
+                if (imdbId && imdbId !== cleanId) {
+                    patterns.push(`cb:str:*${imdbId}*`);
+                }
+                for (const pat of patterns) {
+                    const keys = await kv.keys(pat);
+                    if (Array.isArray(keys) && keys.length > 0) {
+                        await Promise.allSettled(keys.map(k => kv.del(k)));
+                        count += keys.length;
+                    }
+                }
+            } catch (scanErr) {
+                console.warn('[KV Purge Scan Warning]', scanErr.message);
+            }
+        } catch (e) {
+            console.warn('[KV Purge Error]', e.message);
+        }
+    }
+
+    // 3. Also clear memoized domain speed probes so streams freshly re-probe
     try {
         clearDomainLatencyCache();
     } catch (e) {}
@@ -3668,11 +3778,11 @@ function purgeStreamCachesForTarget(type, id, configId = null) {
     return count;
 }
 
-const handleClearCacheRequest = (req, res, configId = null) => {
+const handleClearCacheRequest = async (req, res, configId = null) => {
     const { type, id } = req.params;
     try {
-        const clearedCount = purgeStreamCachesForTarget(type, id, configId);
-        console.log(`[Cache] Force refresh cleared ${clearedCount} entries for ${type} ${id} (configId: ${configId || 'none'})`);
+        const clearedCount = await purgeStreamCachesForTarget(type, id, configId);
+        console.log(`[Cache] Force refresh cleared ${clearedCount} entries for ${type} ${id} (config: ${configId || 'none'})`);
         
         res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
         
@@ -3694,7 +3804,7 @@ app.get('/clear-cache/:type/:id', (req, res) => {
 });
 
 app.get('/:configJSON/clear-cache/:type/:id', (req, res) => {
-    handleClearCacheRequest(req, res, null);
+    handleClearCacheRequest(req, res, req.params.configJSON);
 });
 
 app.get('/c/:configId/clear-cache/:type/:id', (req, res) => {
