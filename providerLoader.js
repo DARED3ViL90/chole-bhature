@@ -698,8 +698,25 @@ class ProviderLoader {
                                     name: scraper.name,
                                     repoName: manifest.name || 'Nuvio Repo',
                                     getStreams: async (id, type, season, episode, userConfig = {}) => {
-                                        const override = (userConfig.scraperOverrides && userConfig.scraperOverrides[scraper.name]) || globalScraperOverrides[scraper.name] || {};
-                                        if (override.disabled || (userConfig.disabledProviders && userConfig.disabledProviders.includes(scraper.name))) {
+                                        const rawDisabled = [
+                                            ...(Array.isArray(userConfig.disabled) ? userConfig.disabled : []),
+                                            ...(Array.isArray(userConfig.disabledProviders) ? userConfig.disabledProviders : [])
+                                        ].map(d => String(d || '').trim().toLowerCase()).filter(Boolean);
+                                        const disabledSet = new Set(rawDisabled);
+                                        const nameLower = (scraper.name || '').toLowerCase().trim();
+                                        const idLower = (scraper.id || '').toLowerCase().trim();
+
+                                        const override = (userConfig.scraperOverrides && (userConfig.scraperOverrides[scraper.name] || userConfig.scraperOverrides[scraper.id])) 
+                                            || globalScraperOverrides[scraper.name] 
+                                            || globalScraperOverrides[scraper.id] 
+                                            || {};
+
+                                        if (
+                                            override.disabled || 
+                                            disabledSet.has(nameLower) || 
+                                            disabledSet.has(idLower) ||
+                                            [...disabledSet].some(d => d && (d === nameLower || d === idLower || nameLower.includes(d) || idLower.includes(d)))
+                                        ) {
                                             return [];
                                         }
                                         activeContext = { config: userConfig, override: override };

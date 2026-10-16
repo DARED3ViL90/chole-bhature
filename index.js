@@ -151,7 +151,7 @@ async function loadGlobalStateFromKV() {
             kv.get('global_analytics')
         ]);
         
-        if (kvTelemetry) telemetryMetrics = { ...telemetryMetrics, ...kvTelemetry };
+        if (kvTelemetry) Object.assign(telemetryMetrics, kvTelemetry);
         
         if (kvQuarantine && Array.isArray(kvQuarantine)) {
             for (const [k, v] of kvQuarantine) quarantineRegistry.set(k, v);
@@ -2782,9 +2782,15 @@ app.get('/debrid/:service/:apiKey/:hash', async (req, res) => {
 // Normalized hash for stream configuration to maximize Redis and in-memory cache hit rate
 function getStreamConfigHash(cfg = {}) {
     try {
+        const rawDisabled = [
+            ...(Array.isArray(cfg.disabled) ? cfg.disabled : []),
+            ...(Array.isArray(cfg.disabledProviders) ? cfg.disabledProviders : [])
+        ].map(d => String(d || '').trim().toLowerCase()).filter(Boolean);
+        const disabledSorted = [...new Set(rawDisabled)].sort();
+
         const functional = {
-            p: cfg.provider || '',
-            d: Array.isArray(cfg.disabled) ? [...cfg.disabled].sort() : [],
+            p: cfg.provider ? String(cfg.provider).trim().toLowerCase() : '',
+            d: disabledSorted,
             u: Array.isArray(cfg.urls) ? [...cfg.urls].sort() : (Array.isArray(cfg.repos) ? [...cfg.repos].sort() : (cfg.repoUrl || '')),
             tg: Boolean(cfg.enableTelegram),
             deb: cfg.debridProvider || '',
@@ -2796,7 +2802,8 @@ function getStreamConfigHash(cfg = {}) {
             langs: Array.isArray(cfg.preferredLanguages) ? [...cfg.preferredLanguages].sort() : [],
             hd: Boolean(cfg.hideDead),
             hs: Boolean(cfg.hideSlow),
-            hc: Boolean(cfg.hideCam || cfg.blockCam)
+            hc: Boolean(cfg.hideCam || cfg.blockCam),
+            hp: Boolean(cfg.hideP2P || cfg.blockP2P || cfg.disableP2P)
         };
         return crypto.createHash('md5').update(JSON.stringify(functional)).digest('hex').substring(0, 10);
     } catch (e) {
@@ -3110,11 +3117,30 @@ function createAddon(config) {
                 }
             }
             
-            // Filter providers
+            // Filter providers (Robust case-insensitive matching across name and ID)
+            const rawDisabled = [
+                ...(Array.isArray(config.disabled) ? config.disabled : []),
+                ...(Array.isArray(config.disabledProviders) ? config.disabledProviders : [])
+            ];
+            const disabledSet = new Set(
+                rawDisabled.map(d => String(d || '').trim().toLowerCase()).filter(Boolean)
+            );
+
             if (config.provider) {
-                allProviders = allProviders.filter(p => p.name === config.provider);
-            } else if (config.disabled && Array.isArray(config.disabled)) {
-                allProviders = allProviders.filter(p => !config.disabled.includes(p.name));
+                const target = String(config.provider).trim().toLowerCase();
+                allProviders = allProviders.filter(p => 
+                    (p.name && p.name.toLowerCase() === target) || 
+                    (p.id && p.id.toLowerCase() === target)
+                );
+            } else if (disabledSet.size > 0) {
+                allProviders = allProviders.filter(p => {
+                    const nameLower = p.name ? p.name.toLowerCase().trim() : '';
+                    const idLower = p.id ? p.id.toLowerCase().trim() : '';
+                    const isDisabled = disabledSet.has(nameLower) || 
+                                       disabledSet.has(idLower) ||
+                                       [...disabledSet].some(d => d && (d === nameLower || d === idLower || nameLower.includes(d) || idLower.includes(d)));
+                    return !isDisabled;
+                });
             }
 
             let allStreams = [];

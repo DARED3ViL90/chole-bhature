@@ -1309,6 +1309,30 @@ async function sortAndTagStreams(streams, config = {}, providerAnalytics) {
 
     // Filter
     let filteredStreams = testedStreams;
+
+    // Safety filter: Strictly purge streams from disabled scrapers that may have leaked
+    const rawDisabled = [
+        ...(Array.isArray(config && config.disabled) ? config.disabled : []),
+        ...(Array.isArray(config && config.disabledProviders) ? config.disabledProviders : [])
+    ].map(d => String(d || '').trim().toLowerCase()).filter(Boolean);
+    if (rawDisabled.length > 0) {
+        filteredStreams = filteredStreams.filter(s => {
+            const raw = s._rawStream || {};
+            const textToCheck = [
+                s.originalProvider,
+                s.provider,
+                s.name,
+                s.title,
+                raw.provider,
+                raw.name,
+                raw.title,
+                Array.isArray(s.providers) ? s.providers.join(' ') : ''
+            ].filter(Boolean).join(' ').toLowerCase();
+
+            return !rawDisabled.some(d => d && textToCheck.includes(d));
+        });
+    }
+
     if (config && config.hideDead) {
         filteredStreams = filteredStreams.filter(s => s.statusCategory !== 'dead');
     }
@@ -1322,9 +1346,17 @@ async function sortAndTagStreams(streams, config = {}, providerAnalytics) {
             return !meta.isCam;
         });
     }
+    // Auto-Hide P2P Torrent streams (uncached magnets)
+    if (config && (config.hideP2P || config.blockP2P || config.disableP2P)) {
+        filteredStreams = filteredStreams.filter(s => {
+            const isMagnet = (s.url && s.url.startsWith('magnet:')) || Boolean(s.infoHash);
+            const isP2P = Boolean(s.isP2P || isMagnet);
+            return !isP2P || Boolean(s.isDebridCached);
+        });
+    }
 
-    // Safety fallback: if strict filters leave 0 streams, retain all tested streams
-    if (filteredStreams.length === 0 && testedStreams.length > 0) {
+    // Safety fallback: if speed filters leave 0 streams, retain all tested streams (never restore blocked scrapers/P2P)
+    if (filteredStreams.length === 0 && testedStreams.length > 0 && !config?.hideP2P && !config?.blockP2P && rawDisabled.length === 0) {
         filteredStreams = testedStreams;
     }
 
