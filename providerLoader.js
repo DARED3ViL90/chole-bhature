@@ -684,6 +684,8 @@ class ProviderLoader {
                             sandbox.global = sandbox;
                             sandbox.globalThis = sandbox;
                             sandbox.self = sandbox;
+                            sandbox.SCRAPER_SETTINGS = {};
+                            sandbox.settings = {};
 
                             vm.createContext(sandbox);
                             vm.runInContext(scriptCode, sandbox);

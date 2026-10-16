@@ -4,7 +4,7 @@ const { parseTorrentTitle, cleanReleaseNoise } = require('./torrentParser');
 const { ingestStream, normalizeInfoHash, parseSizeToBytes, formatBytesToSize, extractCleanProvider } = require('./streamIngest');
 const { formatStreamCard, formatProviderChain } = require('./streamFormatter');
 
-const TIMEOUT_MS = (typeof process !== 'undefined' && process.env.VERCEL) ? 800 : 1200;
+const TIMEOUT_MS = 800;
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
 // High-speed domain latency memoization to avoid probing identical CDNs 50+ times
@@ -751,6 +751,7 @@ async function testStream(stream, showSeeders = true, config = {}) {
         // Specific per-stream check for HubCloud links (detect if this specific file was removed)
         if (stream.url.includes('hubcloud.')) {
             try {
+                const startTime = Date.now();
                 const hcRes = await axios.get(stream.url, { 
                     timeout: TIMEOUT_MS, 
                     headers: probeHeaders,
@@ -760,6 +761,10 @@ async function testStream(stream, showSeeders = true, config = {}) {
                 });
                 const data = typeof hcRes.data === 'string' ? hcRes.data.toLowerCase() : '';
                 if (data.includes('file deleted') || data.includes('file not found') || data.includes('file was deleted') || data.includes('page not found') || hcRes.status === 404 || hcRes.status === 410) {
+                    if (origin) {
+                        domainLatencyPending.delete(origin);
+                        if (resolveDomainProbe) resolveDomainProbe({ latency: 99999, isDead: true, statusCategory: 'dead' });
+                    }
                     const labels = formatStreamLabels(stream, 99999, false, true, showSeeders, config);
                     return {
                         ...stream,
@@ -773,6 +778,28 @@ async function testStream(stream, showSeeders = true, config = {}) {
                         _preparsedMeta: initialMeta
                     };
                 }
+
+                // If file is valid and alive, resolve latency immediately without redundant HEAD probe
+                const hcLatency = Math.max(10, Date.now() - startTime);
+                const statusCategory = hcLatency < 800 ? 'fast' : 'slow';
+                const entry = { latency: hcLatency, isDead: false, statusCategory };
+                if (origin) {
+                    domainLatencyCache.set(origin, entry);
+                    domainLatencyPending.delete(origin);
+                    if (resolveDomainProbe) resolveDomainProbe(entry);
+                }
+                const labels = formatStreamLabels(stream, hcLatency, false, false, showSeeders, config);
+                return {
+                    ...stream,
+                    name: labels.name,
+                    title: labels.title, description: labels.description,
+                    latency: hcLatency,
+                    isDead: false,
+                    statusCategory: statusCategory,
+                    originalProvider: providerName,
+                    _rawStream: rawSnapshot,
+                    _preparsedMeta: initialMeta
+                };
             } catch (err) { 
                 // Keep stream alive on transient error
             }
@@ -1195,8 +1222,9 @@ async function sortAndTagStreams(streams, config = {}, providerAnalytics) {
 
     let testedStreams;
     if (config.maxTestDuration) {
+        let globalTimer;
         const globalTimeoutPromise = new Promise(resolve => {
-            setTimeout(() => {
+            globalTimer = setTimeout(() => {
                 console.warn(`[StreamTester] Global testing timeout reached (${config.maxTestDuration}ms). Bailing out to prevent 504.`);
                 const mixed = uniqueStreams.map(s => {
                     if (s._testedResult) return s._testedResult; // Use real result if finished
@@ -1210,6 +1238,7 @@ async function sortAndTagStreams(streams, config = {}, providerAnalytics) {
             }, config.maxTestDuration);
         });
         testedStreams = await Promise.race([testingPromise, globalTimeoutPromise]);
+        if (globalTimer) clearTimeout(globalTimer);
     } else {
         testedStreams = await testingPromise;
     }

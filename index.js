@@ -1,8 +1,29 @@
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
+
+// Auto-load local .env if present
+try {
+    const envPath = path.join(__dirname, '.env');
+    if (fs.existsSync(envPath)) {
+        const lines = fs.readFileSync(envPath, 'utf8').split('\n');
+        for (const line of lines) {
+            const m = line.match(/^\s*([\w.-]+)\s*=\s*(.*)?\s*$/);
+            if (m) {
+                const key = m[1];
+                let val = (m[2] || '').trim();
+                if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+                    val = val.substring(1, val.length - 1);
+                }
+                if (!process.env[key]) process.env[key] = val;
+            }
+        }
+    }
+} catch (e) {}
+
 const { createClient } = require('@vercel/kv');
 const kv = createClient({ url: process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || process.env.UPSTASH_REDIS_KV_REST_API_URL || '', token: process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || process.env.UPSTASH_REDIS_KV_REST_API_TOKEN || '' });
 const { addonBuilder, serveHTTP } = require('stremio-addon-sdk');
-const path = require('path');
 const providerLoader = require('./providerLoader');
 const { sortAndTagStreams, clearDomainLatencyCache } = require('./streamTester');
 const { setDohEnabled, setDohProvider, getDohConfig, dohHttpsAgent } = require('./dohResolver');
@@ -11,7 +32,6 @@ const { searchPencariMovie } = require('./scrapers/pencarimovie');
 const telegramRouter = require('./routes/telegramStream');
 const streamProxyRouter = require('./routes/streamProxy');
 const axios = require('axios');
-const fs = require('fs');
 const crypto = require('crypto');
 const dns = require('dns').promises;
 const net = require('net');
@@ -3109,11 +3129,11 @@ function createAddon(config) {
             // We leave ~8s buffer for speed-testing after scraping completes.
             const isVercel = typeof process !== 'undefined' && Boolean(process.env.VERCEL);
             const PROVIDER_TIMEOUT_MS = isVercel 
-                ? (isEcoMode ? 6000 : 8000)   // Generous Vercel execution: 8s so all scrapers finish without dropping links
-                : (isEcoMode ? 8000 : 10000); // Render/local: 10s
+                ? (isEcoMode ? 4000 : 5500)   // Responsive: 5.5s so scrapers finish quickly without hanging
+                : (isEcoMode ? 5000 : 6500); // Render/local: 6.5s
             const SCRAPE_DEADLINE_MS = isVercel 
-                ? (isEcoMode ? 6500 : 8500) 
-                : (isEcoMode ? 8500 : 10500);
+                ? (isEcoMode ? 4500 : 6000) 
+                : (isEcoMode ? 5500 : 7000);
 
             const tgScrapePromise = (async () => {
                 if (Boolean(config.enableTelegram) && (!config.disabled || (!config.disabled.includes('Telegram') && !config.disabled.includes('Telegram (PencariMovie)')))) {
@@ -3235,7 +3255,7 @@ function createAddon(config) {
             const isUnreleased = Boolean(type === 'movie' && targetYear && targetYear > currentYear);
 
             const sortedAndTaggedStreams = await sortAndTagStreams(allStreams, {
-                maxTestDuration: Math.max(5000, 25000 - scrapeDurationMs), // Generous duration to accurately probe stream speeds
+                maxTestDuration: Math.min(3000, Math.max(1500, 9500 - scrapeDurationMs)), // Fast speed testing: max 3s probe duration
                 target: {
                     title: mediaMeta?.title || '',
                     originalTitle: mediaMeta?.originalTitle || '',
