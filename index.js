@@ -592,12 +592,8 @@ app.post('/api/config/save', async (req, res) => {
             await await saveUserConfig(oldToken, config);
         }
         
-        // Invalidate stream cache for this configuration
-        for (const key of streamCache.keys()) {
-            if (key.includes(configId) || (token && key.includes(token)) || (oldToken && key.includes(oldToken))) {
-                streamCache.delete(key);
-            }
-        }
+        // Invalidate stream cache for this configuration to purge streams from newly disabled providers
+        streamCache.clear();
         
         const maskedId = configId.length > 20 ? configId.substring(0, 8) + '...' + configId.substring(configId.length - 8) : '***';
         console.log(`[Config] Configuration saved & synced for configId: ${maskedId}`);
@@ -3294,6 +3290,9 @@ function createAddon(config) {
                 hideDead: config.hideDead,
                 hideSlow: config.hideSlow,
                 hideCam: config.hideCam || config.blockCam,
+                hideP2P: Boolean(config.hideP2P || config.blockP2P || config.disableP2P),
+                disabled: config.disabled || config.disabledProviders || [],
+                disabledProviders: config.disabledProviders || config.disabled || [],
                 sortBy: config.sortBy || (config.prioritizeQuality ? 'quality' : 'speed'),
                 sortMode: config.sortMode || config.sortBy,
                 prioritizeQuality: config.sortBy === 'quality' || config.prioritizeQuality,
@@ -3339,6 +3338,38 @@ function createAddon(config) {
             return sortedAndTaggedStreams;
         };
 
+        const filterRuntimeStreams = (streamList) => {
+            if (!Array.isArray(streamList)) return [];
+            let list = streamList;
+            const rawDisabled = [
+                ...(Array.isArray(config.disabled) ? config.disabled : []),
+                ...(Array.isArray(config.disabledProviders) ? config.disabledProviders : [])
+            ];
+            const disabledSet = new Set(
+                rawDisabled.map(d => String(d || '').trim().toLowerCase()).filter(Boolean)
+            );
+            if (disabledSet.size > 0) {
+                list = list.filter(s => {
+                    const pLower = (s.provider || '').toLowerCase();
+                    const nLower = (s.name || '').toLowerCase();
+                    return ![...disabledSet].some(d => {
+                        const cleanD = d.replace(/[^a-z0-9]/g, '');
+                        const cleanP = pLower.replace(/[^a-z0-9]/g, '');
+                        const cleanN = nLower.replace(/[^a-z0-9]/g, '');
+                        return pLower.includes(d) || nLower.includes(d) || (cleanD && (cleanP.includes(cleanD) || cleanN.includes(cleanD)));
+                    });
+                });
+            }
+            if (config.hideP2P || config.blockP2P || config.disableP2P) {
+                list = list.filter(s => {
+                    const isMagnet = (s.url && s.url.startsWith('magnet:')) || Boolean(s.infoHash);
+                    const isP2P = Boolean(s.isP2P || isMagnet || (s.name && s.name.includes('[P2P]')));
+                    return !isP2P || Boolean(s.isDebridCached);
+                });
+            }
+            return list;
+        };
+
         if (cached && Date.now() - cached.timestamp < STALE_TTL_MS) {
             console.log(`[Stremio] Serving cached results for ${type} ${id}`);
             
@@ -3355,7 +3386,8 @@ function createAddon(config) {
             }
             
             const frStream = getForceRefreshStream();
-            return { streams: frStream ? [frStream, ...cached.streams] : cached.streams };
+            const filteredCached = filterRuntimeStreams(cached.streams);
+            return { streams: frStream ? [frStream, ...filteredCached] : filteredCached };
         }
 
         // Deduplicate in-flight requests for the exact same stream
@@ -3363,7 +3395,8 @@ function createAddon(config) {
             console.log(`[Stremio] Awaiting in-flight fetch for ${type} ${id}`);
             const inFlightResult = await inFlightStreamFetches.get(cacheKey);
             const frStream = getForceRefreshStream();
-            return { streams: frStream ? [frStream, ...inFlightResult] : inFlightResult };
+            const filteredInFlight = filterRuntimeStreams(inFlightResult);
+            return { streams: frStream ? [frStream, ...filteredInFlight] : filteredInFlight };
         }
 
         const fetchPromise = fetchAndCacheStreams();
