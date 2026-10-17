@@ -486,6 +486,7 @@ class ProviderLoader {
                                     const nativeOptions = { method, headers: browserHeaders };
                                     if (options.body) nativeOptions.body = options.body;
                                     if (options.signal) nativeOptions.signal = options.signal;
+                                    if (options.redirect) nativeOptions.redirect = options.redirect;
 
                                     const tryNative = async (targetUrl) => {
                                         const controller = new AbortController();
@@ -807,18 +808,35 @@ class ProviderLoader {
             let defaultSeason = (testType === 'tv' || testType === 'series') ? parsedSeason : season;
             let defaultEpisode = (testType === 'tv' || testType === 'series') ? parsedEpisode : episode;
 
-            // Smart benchmark fallback: anime scrapers cannot scrape live-action movies like Fight Club
-            const isAnimeScraper = /ani|kurage|reanime/i.test(targetProvider.name || '') || /ani|kurage|reanime/i.test(providerName || '');
-            if (isAnimeScraper && (testMediaId === 'tt0137523' || testMediaId === '550')) {
-                testMediaId = '1429';
-                testType = 'tv';
-                defaultSeason = parsedSeason;
-                defaultEpisode = parsedEpisode;
+            // Smart benchmark fallback: specific scrapers specialize in specific catalogs
+            const pId = (targetProvider.name || '') + ' ' + (providerName || '');
+            const isAnimeScraper = /ani|kurage|reanime/i.test(pId);
+            const isCartoonScraper = /cartoon|puretoon|toon/i.test(pId);
+            const isIndianScraper = /einthusan/i.test(pId);
+
+            if ((testMediaId === 'tt0137523' || testMediaId === '550')) {
+                if (isAnimeScraper) {
+                    testMediaId = '1429';
+                    testType = 'tv';
+                    defaultSeason = parsedSeason;
+                    defaultEpisode = parsedEpisode;
+                } else if (/topcartoon/i.test(pId)) {
+                    testMediaId = '217288';
+                    testType = 'tv';
+                    defaultSeason = 1;
+                    defaultEpisode = 1;
+                } else if (isCartoonScraper) {
+                    testMediaId = '1338692';
+                    testType = 'movie';
+                } else if (isIndianScraper) {
+                    testMediaId = '872906';
+                    testType = 'movie';
+                }
             }
 
             let streams = await targetProvider.getStreams(testMediaId, testType, defaultSeason, defaultEpisode, testConfig);
             // Fallback for movie providers if Fight Club (1999) has no seeds on newer indexes
-            if ((!streams || streams.length === 0) && (testMediaId === 'tt0137523' || testMediaId === '550') && !isAnimeScraper) {
+            if ((!streams || streams.length === 0) && (testMediaId === 'tt0137523' || testMediaId === '550') && !isAnimeScraper && !isCartoonScraper && !isIndianScraper) {
                 try {
                     const oppenheimerStreams = await targetProvider.getStreams('872585', 'movie', null, null, testConfig);
                     if (Array.isArray(oppenheimerStreams) && oppenheimerStreams.length > 0) {

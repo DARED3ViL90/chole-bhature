@@ -14087,10 +14087,38 @@
             if (!sel) return;
             sel.innerHTML = adminLocalScrapers.map(s => `<option value="${s.name}">${s.name} (${s.filename})</option>`).join('');
             if (currentStudioScraper) sel.value = currentStudioScraper.name;
+            sel.onchange = () => applyOptimalBenchPreset(sel.value);
             if (sel.dataset.customized === 'true') {
                 if (typeof sel._rebuildCustomSelect === 'function') sel._rebuildCustomSelect();
             } else {
                 initCustomSelect(sel);
+            }
+        }
+
+        function applyOptimalBenchPreset(scraperName) {
+            const name = (scraperName || '').toLowerCase();
+            const idInput = document.getElementById('bench-media-id');
+            const typeSel = document.getElementById('bench-media-type');
+            if (!idInput || !typeSel) return;
+
+            // Only switch if current value is default Fight Club (550) or user hasn't typed custom ID
+            const currentId = idInput.value.trim();
+            if (currentId === '550' || currentId === 'tt0137523' || currentId === '1429' || currentId === '1338692' || currentId === '872906' || currentId === '872585') {
+                if (/ani|kurage|reanime/i.test(name)) {
+                    idInput.value = '1429'; // Attack on Titan
+                    typeSel.value = 'tv';
+                } else if (/cartoon|puretoon|toon/i.test(name)) {
+                    idInput.value = '1338692'; // Doraemon
+                    typeSel.value = 'movie';
+                } else if (/einthusan/i.test(name)) {
+                    idInput.value = '872906'; // Jawan
+                    typeSel.value = 'movie';
+                } else {
+                    idInput.value = '872585'; // Oppenheimer
+                    typeSel.value = 'movie';
+                }
+                if (typeof typeSel._syncCustomSelect === 'function') typeSel._syncCustomSelect();
+                toggleBenchTvFields(typeSel.value);
             }
         }
 
@@ -14102,6 +14130,7 @@
                 sel.value = name;
                 if (typeof sel._syncCustomSelect === 'function') sel._syncCustomSelect();
             }
+            applyOptimalBenchPreset(name);
         }
 
         function toggleBenchTvFields(type) {
@@ -14177,19 +14206,20 @@
                     } else {
                         streamList.innerHTML = streams.map(s => {
                             const isFast = !s.latency || s.latency < 800;
+                            const actualUrl = s.url || s.externalUrl || '';
                             const hasHeaders = s.headers && Object.keys(s.headers).length > 0;
-                            const playUrl = hasHeaders
-                                ? `/proxy/stream?url=${encodeURIComponent(s.url)}&headers=${encodeURIComponent(JSON.stringify(s.headers))}`
-                                : s.url;
+                            const playUrl = hasHeaders && actualUrl
+                                ? `/proxy/stream?url=${encodeURIComponent(actualUrl)}&headers=${encodeURIComponent(JSON.stringify(s.headers))}`
+                                : (actualUrl || '#');
                             return `
                             <div class="bench-stream-item">
                                 <div class="bench-stream-info">
                                     <div style="font-size: 13px; font-weight: 700; color: #fff; line-height: 1.3;">${s.title || s.name || 'Stream'}</div>
-                                    <div class="bench-stream-url">${s.url}</div>
+                                    <div class="bench-stream-url">${actualUrl || 'No direct URL provided'}</div>
                                 </div>
                                 <div class="bench-stream-actions" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                                     <span class="tag-pill-badge" style="background: rgba(16,185,129,0.12); color: #34d399; font-weight: 700; font-size: 11px;">🟢 FAST</span>
-                                    <a href="${playUrl}" target="_blank" rel="noopener noreferrer" class="pill-btn pill-btn-glass" style="padding: 4px 10px; font-size: 11px; text-decoration: none;" title="${hasHeaders ? 'Streams via Header Proxy' : 'Direct Stream'}">▶️ Open / Test</a>
+                                    ${actualUrl ? `<a href="${playUrl}" target="_blank" rel="noopener noreferrer" class="pill-btn pill-btn-glass" style="padding: 4px 10px; font-size: 11px; text-decoration: none;" title="${hasHeaders ? 'Streams via Header Proxy' : 'Direct Stream'}">▶️ Open / Test</a>` : ''}
                                 </div>
                             </div>`;
                         }).join('');
