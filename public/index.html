@@ -11280,16 +11280,44 @@
                         `).join('');
                     }
 
+                    const diag = data.diagnostics || {};
+                    const isZeroStreams = data.streamCount === 0;
+                    const statusColor = isZeroStreams ? (diag.cfBlocked ? '#f87171' : '#fbbf24') : 'var(--text-success)';
+                    const statusBg = isZeroStreams ? (diag.cfBlocked ? 'rgba(239, 68, 68, 0.12)' : 'rgba(245, 158, 11, 0.12)') : 'rgba(16, 185, 129, 0.12)';
+                    const statusBorder = isZeroStreams ? (diag.cfBlocked ? 'rgba(239, 68, 68, 0.3)' : 'rgba(245, 158, 11, 0.3)') : 'rgba(16, 185, 129, 0.3)';
+                    const statusTitle = isZeroStreams 
+                        ? (diag.cfBlocked ? '🔴 Cloudflare Datacenter Block' : (diag.timeoutError ? '🟡 Network Timeout' : '🟡 0 Streams Found'))
+                        : '🟢 Scraper Online';
+
+                    let probesHtml = '';
+                    if (Array.isArray(diag.probes) && diag.probes.length > 0) {
+                        probesHtml = `
+                            <div style="margin-top: 8px; padding-top: 6px; border-top: 1px dashed rgba(var(--overlay-base), 0.1); font-size: 11px;">
+                                <div style="color: var(--text-muted); font-weight: 600; margin-bottom: 4px;">📡 Probed Network Calls:</div>
+                                ${diag.probes.map(p => `
+                                    <div style="display: flex; align-items: center; justify-content: space-between; font-family: monospace; font-size: 10px; background: rgba(0,0,0,0.25); padding: 3px 6px; border-radius: 4px; margin-bottom: 2px;">
+                                        <span style="color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 75%;">${p.url}</span>
+                                        <span style="color: ${p.status === 200 ? '#34d399' : (p.status === 403 ? '#f87171' : '#f59e0b')}; font-weight: 700;">${p.status || p.error || 'ERR'}</span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        `;
+                    }
+
                     resultBox.innerHTML = `
-                        <div style="background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 10px; padding: 10px;">
+                        <div style="background: ${statusBg}; border: 1px solid ${statusBorder}; border-radius: 10px; padding: 10px;">
                             <div style="display: flex; align-items: center; justify-content: space-between;">
-                                <span style="color: var(--text-success); font-weight: 700;">🟢 Scraper Online</span>
-                                <span style="font-size: 11px; color: #a78bfa; background: rgba(139,92,246,0.15); padding: 2px 8px; border-radius: 9999px;">${data.latencyMs}ms</span>
+                                <span style="color: ${statusColor}; font-weight: 700;">${statusTitle}</span>
+                                <div style="display: flex; gap: 4px; align-items: center;">
+                                    <span style="font-size: 10px; color: var(--text-muted); background: rgba(var(--overlay-base),0.06); padding: 2px 6px; border-radius: 9999px;">${diag.environment || data.environment || 'Host'}</span>
+                                    <span style="font-size: 11px; color: #a78bfa; background: rgba(139,92,246,0.15); padding: 2px 8px; border-radius: 9999px;">${data.latencyMs}ms</span>
+                                </div>
                             </div>
                             <div style="font-size: 11.5px; color: var(--text-secondary); margin-top: 4px;">
-                                📦 Probed <b>${data.streamCount}</b> stream(s) for benchmark title.
+                                📦 Probed <b>${data.streamCount}</b> stream(s). ${diag.reason || data.message || ''}
                             </div>
                             ${streamsHtml ? `<div style="margin-top: 6px; max-height: 120px; overflow-y: auto;">${streamsHtml}</div>` : ''}
+                            ${probesHtml}
                         </div>
                     `;
                 } else {

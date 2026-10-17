@@ -451,7 +451,30 @@ class ProviderLoader {
                             }
 
                             // Dynamic context for current invocation
-                            let activeContext = { config: {}, override: {} };
+                            let activeContext = { config: {}, override: {}, telemetry: null };
+
+                            const recordTelemetry = (targetUrl, status, hdrs, err) => {
+                                if (!activeContext.telemetry || !Array.isArray(activeContext.telemetry)) return;
+                                let cfRay = null;
+                                let server = null;
+                                if (hdrs) {
+                                    if (typeof hdrs.get === 'function') {
+                                        cfRay = hdrs.get('cf-ray') || hdrs.get('cf-cache-status');
+                                        server = hdrs.get('server');
+                                    } else if (typeof hdrs === 'object') {
+                                        cfRay = hdrs['cf-ray'] || hdrs['cf-cache-status'];
+                                        server = hdrs['server'];
+                                    }
+                                }
+                                activeContext.telemetry.push({
+                                    url: targetUrl,
+                                    status: status || null,
+                                    error: err ? (err.message || String(err)) : null,
+                                    cfRay: cfRay || null,
+                                    server: server || null,
+                                    timestamp: Date.now()
+                                });
+                            };
 
                             // Intercept fetch for TMDB and inject connection pooling & domain overrides
                             const customFetch = async (url, options = {}) => {
@@ -536,19 +559,30 @@ class ProviderLoader {
 
                                     try {
                                         const res = await tryNative(urlStr);
+                                        recordTelemetry(urlStr, res.status, res.headers, null);
                                         if (!res.ok && override && Array.isArray(override.fallbackMirrors) && override.fallbackMirrors.length > 0) {
                                             for (const mirror of override.fallbackMirrors) {
                                                 try {
                                                     const fbRes = await tryNative(applyDomainOverride(urlStr, { domain: mirror }));
+                                                    recordTelemetry(applyDomainOverride(urlStr, { domain: mirror }), fbRes.status, fbRes.headers, null);
                                                     if (fbRes.ok) return fbRes;
-                                                } catch (e) {}
+                                                } catch (e) {
+                                                    recordTelemetry(applyDomainOverride(urlStr, { domain: mirror }), null, null, e);
+                                                }
                                             }
                                         }
                                         return res;
                                     } catch (err) {
+                                        recordTelemetry(urlStr, null, null, err);
                                         if (override && Array.isArray(override.fallbackMirrors) && override.fallbackMirrors.length > 0) {
                                             for (const mirror of override.fallbackMirrors) {
-                                                try { return await tryNative(applyDomainOverride(urlStr, { domain: mirror })); } catch (e) {}
+                                                try { 
+                                                    const fbRes = await tryNative(applyDomainOverride(urlStr, { domain: mirror })); 
+                                                    recordTelemetry(applyDomainOverride(urlStr, { domain: mirror }), fbRes.status, fbRes.headers, null);
+                                                    return fbRes;
+                                                } catch (e) {
+                                                    recordTelemetry(applyDomainOverride(urlStr, { domain: mirror }), null, null, e);
+                                                }
                                             }
                                         }
                                         throw err;
@@ -566,24 +600,33 @@ class ProviderLoader {
 
                                 try {
                                     const res = await fetch(urlStr, mergedOptions);
+                                    recordTelemetry(urlStr, res.status, res.headers, null);
                                     // Automatic fallback mirror retry on failure
                                     if (!res.ok && override && Array.isArray(override.fallbackMirrors) && override.fallbackMirrors.length > 0) {
                                         for (const mirror of override.fallbackMirrors) {
                                             try {
                                                 const fallbackUrl = applyDomainOverride(urlStr, { domain: mirror });
                                                 const fbRes = await fetch(fallbackUrl, mergedOptions);
+                                                recordTelemetry(fallbackUrl, fbRes.status, fbRes.headers, null);
                                                 if (fbRes.ok) return fbRes;
-                                            } catch (e) {}
+                                            } catch (e) {
+                                                recordTelemetry(applyDomainOverride(urlStr, { domain: mirror }), null, null, e);
+                                            }
                                         }
                                     }
                                     return res;
                                 } catch (err) {
+                                    recordTelemetry(urlStr, null, null, err);
                                     if (override && Array.isArray(override.fallbackMirrors) && override.fallbackMirrors.length > 0) {
                                         for (const mirror of override.fallbackMirrors) {
                                             try {
                                                 const fallbackUrl = applyDomainOverride(urlStr, { domain: mirror });
-                                                return await fetch(fallbackUrl, mergedOptions);
-                                            } catch (e) {}
+                                                const fbRes = await fetch(fallbackUrl, mergedOptions);
+                                                recordTelemetry(fallbackUrl, fbRes.status, fbRes.headers, null);
+                                                return fbRes;
+                                            } catch (e) {
+                                                recordTelemetry(applyDomainOverride(urlStr, { domain: mirror }), null, null, e);
+                                            }
                                         }
                                     }
                                     throw err;
@@ -632,14 +675,21 @@ class ProviderLoader {
                                 }
                                 const override = activeContext.override || (activeContext.config?.scraperOverrides && activeContext.config.scraperOverrides[scraper.name]) || globalScraperOverrides[scraper.name];
                                 try {
-                                    return await axiosInstance(config);
+                                    const res = await axiosInstance(config);
+                                    recordTelemetry(config.url || urlStr, res.status, res.headers, null);
+                                    return res;
                                 } catch (err) {
+                                    recordTelemetry(config.url || urlStr, err.response?.status, err.response?.headers, err);
                                     if (override && Array.isArray(override.fallbackMirrors) && override.fallbackMirrors.length > 0) {
                                         for (const mirror of override.fallbackMirrors) {
                                             try {
                                                 const fallbackUrl = applyDomainOverride(urlStr, { domain: mirror });
-                                                return await axiosInstance({ ...config, url: fallbackUrl });
-                                            } catch (e) {}
+                                                const fbRes = await axiosInstance({ ...config, url: fallbackUrl });
+                                                recordTelemetry(fallbackUrl, fbRes.status, fbRes.headers, null);
+                                                return fbRes;
+                                            } catch (e) {
+                                                recordTelemetry(fallbackUrl, e.response?.status, e.response?.headers, e);
+                                            }
                                         }
                                     }
                                     throw err;
@@ -756,11 +806,15 @@ class ProviderLoader {
                                         ) {
                                             return [];
                                         }
-                                        activeContext = { config: userConfig, override: override };
+                                        activeContext = { 
+                                            config: userConfig, 
+                                            override: override,
+                                            telemetry: userConfig && userConfig._captureTelemetry ? userConfig.telemetryRef : null
+                                        };
                                         try {
                                             return await originalGetStreams(id, type, season, episode, userConfig);
                                         } finally {
-                                            activeContext = { config: {}, override: {} };
+                                            activeContext = { config: {}, override: {}, telemetry: null };
                                         }
                                     }
                                 };
@@ -841,7 +895,10 @@ class ProviderLoader {
                 };
             }
 
+            const telemetryLog = [];
             const testConfig = {
+                _captureTelemetry: true,
+                telemetryRef: telemetryLog,
                 scraperOverrides: {
                     [targetProvider.name]: overrides
                 }
@@ -888,20 +945,96 @@ class ProviderLoader {
             const latencyMs = Date.now() - startTime;
             const validStreams = Array.isArray(streams) ? streams : [];
 
+            const isVercel = typeof process !== 'undefined' && Boolean(process.env.VERCEL);
+            const region = process.env.VERCEL_REGION || (isVercel ? 'bom1' : 'local');
+            const environment = isVercel ? `Vercel Serverless (${region})` : 'Local Node Server';
+
+            let primaryDomain = '';
+            let cfDetected = false;
+            let cfBlocked = false;
+            let timeoutError = false;
+            let firstStatus = null;
+            const probedUrls = [];
+
+            for (const t of telemetryLog) {
+                if (t.url && !t.url.includes('themoviedb.org') && !t.url.includes('tmdb.org')) {
+                    probedUrls.push({
+                        url: t.url,
+                        status: t.status || (t.error ? 'ERR' : null),
+                        error: t.error || null,
+                        cfRay: t.cfRay || null
+                    });
+                    if (!primaryDomain) {
+                        try { primaryDomain = new URL(t.url).hostname; } catch (_) {}
+                    }
+                    if (t.cfRay || (t.server && /cloudflare/i.test(t.server))) {
+                        cfDetected = true;
+                    }
+                    if (t.status === 403 || t.status === 503) {
+                        cfBlocked = true;
+                    }
+                    if (t.error && /timeout|aborted|ETIMEDOUT|ECONNRESET/i.test(t.error)) {
+                        timeoutError = true;
+                    }
+                    if (firstStatus == null && t.status) {
+                        firstStatus = t.status;
+                    }
+                }
+            }
+
+            let reason = '';
+            if (validStreams.length > 0) {
+                reason = `Successfully retrieved ${validStreams.length} stream(s)`;
+            } else if (cfBlocked) {
+                reason = `⚠️ Cloudflare Bot Fight Mode (HTTP 403/503 Challenge) blocked ${environment}. The site rejects datacenter IPs.`;
+            } else if (timeoutError) {
+                reason = `⏱️ Network timeout connecting to ${primaryDomain || 'origin'}. Site may be geo-blocking or offline.`;
+            } else if (firstStatus === 404) {
+                reason = `❌ Origin endpoint returned 404 Not Found for ${testMediaId}.`;
+            } else if (probedUrls.length === 0) {
+                reason = `ℹ️ No network requests dispatched by scraper for media "${testMediaId}".`;
+            } else {
+                reason = `ℹ️ Origin reachable (HTTP ${firstStatus || 200}), but search query returned 0 streams.`;
+            }
+
             return {
                 success: true,
                 providerName: targetProvider.name,
                 latencyMs,
                 streamCount: validStreams.length,
                 streams: validStreams.slice(0, 5),
-                message: `Successfully tested ${targetProvider.name}: found ${validStreams.length} stream(s)`
+                environment,
+                diagnostics: {
+                    environment,
+                    primaryDomain,
+                    cloudPlatform: isVercel ? 'vercel' : 'local',
+                    region,
+                    cfDetected,
+                    cfBlocked,
+                    timeoutError,
+                    httpStatus: firstStatus,
+                    reason,
+                    probedCount: probedUrls.length,
+                    probes: probedUrls.slice(0, 6)
+                },
+                message: reason
             };
         } catch (err) {
+            const isVercel = typeof process !== 'undefined' && Boolean(process.env.VERCEL);
+            const region = process.env.VERCEL_REGION || (isVercel ? 'bom1' : 'local');
+            const environment = isVercel ? `Vercel Serverless (${region})` : 'Local Node Server';
             return {
                 success: false,
                 providerName,
                 error: err.message || 'Scraper test execution error',
-                latencyMs: Date.now() - startTime
+                latencyMs: Date.now() - startTime,
+                environment,
+                diagnostics: {
+                    environment,
+                    cloudPlatform: isVercel ? 'vercel' : 'local',
+                    region,
+                    reason: err.message
+                }
             };
         }
     }
