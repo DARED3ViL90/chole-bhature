@@ -746,50 +746,6 @@ async function testStream(stream, showSeeders = true, config = {}) {
         const urlObj = new URL(stream.url);
         const origin = urlObj.origin;
 
-        // High-Speed Domain Latency Memoization: If origin CDN was already tested in this batch, reuse probe result immediately
-        if (origin && domainLatencyCache.has(origin)) {
-            const cachedDomain = domainLatencyCache.get(origin);
-            const labels = formatStreamLabels(stream, cachedDomain.latency, false, cachedDomain.isDead, showSeeders, config);
-            return {
-                ...stream,
-                name: labels.name,
-                title: labels.title, description: labels.description,
-                latency: cachedDomain.latency,
-                isDead: cachedDomain.isDead,
-                statusCategory: cachedDomain.statusCategory,
-                originalProvider: providerName,
-                _rawStream: rawSnapshot,
-                _preparsedMeta: initialMeta
-            };
-        }
-
-        // If another stream for this origin CDN is currently in-flight probing, await its result
-        if (origin && domainLatencyPending.has(origin)) {
-            try {
-                const cachedDomain = await domainLatencyPending.get(origin);
-                if (cachedDomain) {
-                    const labels = formatStreamLabels(stream, cachedDomain.latency, false, cachedDomain.isDead, showSeeders, config);
-                    return {
-                        ...stream,
-                        name: labels.name,
-                        title: labels.title, description: labels.description,
-                        latency: cachedDomain.latency,
-                        isDead: cachedDomain.isDead,
-                        statusCategory: cachedDomain.statusCategory,
-                        originalProvider: providerName,
-                        _rawStream: rawSnapshot,
-                        _preparsedMeta: initialMeta
-                    };
-                }
-            } catch (e) {}
-        }
-
-        let resolveDomainProbe;
-        if (origin && !domainLatencyPending.has(origin)) {
-            const probePromise = new Promise(resolve => { resolveDomainProbe = resolve; });
-            domainLatencyPending.set(origin, probePromise);
-        }
-
         const probeHeaders = {
             'User-Agent': customHeaders['User-Agent'] || customHeaders['user-agent'] || USER_AGENT,
             ...(customHeaders['Referer'] || customHeaders['referer'] ? { 'Referer': customHeaders['Referer'] || customHeaders['referer'] } : {}),
@@ -799,7 +755,7 @@ async function testStream(stream, showSeeders = true, config = {}) {
         // Specific per-stream check for HubCloud links (detect if this specific file was removed)
         if (stream.url.includes('hubcloud.')) {
             try {
-                const startTime = Date.now();
+                const hcStart = Date.now();
                 const hcRes = await axios.get(stream.url, { 
                     timeout: TIMEOUT_MS, 
                     headers: probeHeaders,
@@ -807,12 +763,9 @@ async function testStream(stream, showSeeders = true, config = {}) {
                     httpsAgent: dohHttpsAgent,
                     validateStatus: () => true 
                 });
+                const hcLatency = Math.max(30, Date.now() - hcStart);
                 const data = typeof hcRes.data === 'string' ? hcRes.data.toLowerCase() : '';
                 if (data.includes('file deleted') || data.includes('file not found') || data.includes('file was deleted') || data.includes('page not found') || hcRes.status === 404 || hcRes.status === 410) {
-                    if (origin) {
-                        domainLatencyPending.delete(origin);
-                        if (resolveDomainProbe) resolveDomainProbe({ latency: 99999, isDead: true, statusCategory: 'dead' });
-                    }
                     const labels = formatStreamLabels(stream, 99999, false, true, showSeeders, config);
                     return {
                         ...stream,
@@ -827,15 +780,8 @@ async function testStream(stream, showSeeders = true, config = {}) {
                     };
                 }
 
-                // If file is valid and alive, resolve latency immediately without redundant HEAD probe
-                const hcLatency = Math.max(10, Date.now() - startTime);
+                // If file is valid and alive, return with actual measured round-trip ping
                 const statusCategory = hcLatency < 800 ? 'fast' : 'slow';
-                const entry = { latency: hcLatency, isDead: false, statusCategory };
-                if (origin) {
-                    domainLatencyCache.set(origin, entry);
-                    domainLatencyPending.delete(origin);
-                    if (resolveDomainProbe) resolveDomainProbe(entry);
-                }
                 const labels = formatStreamLabels(stream, hcLatency, false, false, showSeeders, config);
                 return {
                     ...stream,
@@ -857,6 +803,7 @@ async function testStream(stream, showSeeders = true, config = {}) {
         let latency = 0;
         let isDead = false;
 
+        const probeStartTime = Date.now();
         try {
             // 1. Primary probe: Direct HEAD request to stream.url
             const res = await axios.head(stream.url, {
@@ -867,6 +814,7 @@ async function testStream(stream, showSeeders = true, config = {}) {
                 validateStatus: () => true,
                 maxRedirects: 3
             });
+            const elapsed = Date.now() - probeStartTime;
 
             if (res.status === 404 || res.status === 410 || res.status >= 500) {
                 isDead = true;
@@ -874,6 +822,7 @@ async function testStream(stream, showSeeders = true, config = {}) {
             } else if (res.status === 403) {
                 // If HEAD returns 403, verify with GET Range before assuming dead
                 try {
+                    const rangeStart = Date.now();
                     const rangeRes = await axios.get(stream.url, {
                         timeout: TIMEOUT_MS,
                         headers: { ...probeHeaders, 'Range': 'bytes=0-10' },
@@ -882,26 +831,17 @@ async function testStream(stream, showSeeders = true, config = {}) {
                         validateStatus: () => true,
                         maxRedirects: 3
                     });
+                    const rangeElapsed = Date.now() - rangeStart;
                     if (rangeRes.status === 404 || rangeRes.status === 410 || rangeRes.status >= 500) {
                         isDead = true;
                         latency = 99999;
                     } else if (rangeRes.status === 403) {
-                        // Both HEAD and GET Range returned 403: verify if server origin is reachable
-                        try {
-                            await axios.head(origin, {
-                                timeout: TIMEOUT_MS,
-                                headers: probeHeaders,
-                                httpAgent: dohHttpAgent,
-                                httpsAgent: dohHttpsAgent,
-                                validateStatus: (status) => status >= 200 && status < 400
-                            });
-                            latency = Math.max(2, Date.now() - startTime);
-                        } catch (oErr) {
-                            isDead = true;
-                            latency = 99999;
-                        }
+                        // Forbidden even with Range probe -> needs special proxy or auth
+                        // Give it realistic slow penalty rather than bogus 2ms
+                        isDead = false;
+                        latency = 1200;
                     } else {
-                        latency = Math.max(35, Date.now() - startTime);
+                        latency = Math.max(30, rangeElapsed);
                     }
                 } catch (rErr) {
                     if (rErr.code === 'ECONNREFUSED' || rErr.code === 'ENOTFOUND') {
@@ -912,11 +852,12 @@ async function testStream(stream, showSeeders = true, config = {}) {
                     }
                 }
             } else {
-                latency = Math.max(35, Date.now() - startTime);
+                latency = Math.max(30, elapsed);
             }
         } catch (headErr) {
             // HEAD rejected or connection error -> fallback to GET Range probe
             try {
+                const getStart = Date.now();
                 const getRes = await axios.get(stream.url, {
                     timeout: TIMEOUT_MS,
                     headers: { ...probeHeaders, 'Range': 'bytes=0-10' },
@@ -925,55 +866,28 @@ async function testStream(stream, showSeeders = true, config = {}) {
                     validateStatus: () => true,
                     maxRedirects: 3
                 });
+                const getElapsed = Date.now() - getStart;
 
                 if (getRes.status === 404 || getRes.status === 410 || getRes.status >= 500) {
                     isDead = true;
                     latency = 99999;
                 } else if (getRes.status === 403) {
-                    try {
-                        await axios.head(origin, {
-                            timeout: TIMEOUT_MS,
-                            headers: probeHeaders,
-                            httpAgent: dohHttpAgent,
-                            httpsAgent: dohHttpsAgent,
-                            validateStatus: (status) => status >= 200 && status < 400
-                        });
-                        latency = Math.max(50, Date.now() - startTime);
-                    } catch (oErr) {
-                        isDead = true;
-                        latency = 99999;
-                    }
+                    isDead = false;
+                    latency = 1200;
                 } else {
-                    latency = Math.max(2, Date.now() - startTime);
+                    latency = Math.max(30, getElapsed);
                 }
             } catch (getErr) {
                 if (getErr.code === 'ECONNREFUSED' || getErr.code === 'ENOTFOUND') {
                     isDead = true;
                     latency = 99999;
                 } else {
-                    try {
-                        await axios.head(origin, {
-                            timeout: TIMEOUT_MS,
-                            headers: probeHeaders,
-                            httpAgent: dohHttpAgent,
-                            httpsAgent: dohHttpsAgent,
-                            validateStatus: (status) => status < 500
-                        });
-                        latency = Math.max(60, Date.now() - startTime);
-                    } catch (oErr) {
-                        latency = 850;
-                    }
+                    latency = 850;
                 }
             }
         }
 
         if (isDead || latency >= 90000) {
-            const entry = { latency: 99999, isDead: true, statusCategory: 'dead' };
-            if (origin) {
-                domainLatencyCache.set(origin, entry);
-                domainLatencyPending.delete(origin);
-                if (resolveDomainProbe) resolveDomainProbe(entry);
-            }
             const labels = formatStreamLabels(stream, 99999, false, true, showSeeders, config);
             return {
                 ...stream,
@@ -989,12 +903,6 @@ async function testStream(stream, showSeeders = true, config = {}) {
         }
 
         const statusCategory = latency < 800 ? 'fast' : 'slow';
-        const entry = { latency, isDead: false, statusCategory };
-        if (origin) {
-            domainLatencyCache.set(origin, entry);
-            domainLatencyPending.delete(origin);
-            if (resolveDomainProbe) resolveDomainProbe(entry);
-        }
         const labels = formatStreamLabels(stream, latency, false, false, showSeeders, config);
 
         return {
@@ -1010,10 +918,6 @@ async function testStream(stream, showSeeders = true, config = {}) {
         };
 
     } catch (err) {
-        if (typeof origin !== 'undefined' && origin) {
-            domainLatencyPending.delete(origin);
-            if (typeof resolveDomainProbe === 'function') resolveDomainProbe(null);
-        }
         const labels = formatStreamLabels(stream, 1200, false, false, showSeeders, config);
         return {
             ...stream,
@@ -1259,14 +1163,25 @@ async function sortAndTagStreams(streams, config = {}, providerAnalytics) {
         }
     }
 
-    // Run tests concurrently, but track which ones finished
-    const testPromises = uniqueStreams.map(async stream => {
+    // Run tests concurrently with controlled pool of 12 workers to prevent socket starvation
+    async function mapConcurrent(items, limit, fn) {
+        const results = new Array(items.length);
+        let index = 0;
+        const workers = new Array(Math.min(limit, items.length)).fill(0).map(async () => {
+            while (index < items.length) {
+                const i = index++;
+                results[i] = await fn(items[i], i);
+            }
+        });
+        await Promise.all(workers);
+        return results;
+    }
+
+    const testingPromise = mapConcurrent(uniqueStreams, 12, async (stream) => {
         const result = await testStream(stream, showSeeders, config);
         stream._testedResult = result;
         return result;
     });
-
-    const testingPromise = Promise.all(testPromises);
 
     let testedStreams;
     if (config.maxTestDuration) {
@@ -1545,12 +1460,7 @@ async function sortAndTagStreams(streams, config = {}, providerAnalytics) {
                 return rankA - rankB;
             }
 
-            // 2. Exact latency (lowest ms first) — STRICT PRIMARY sort in speed mode
-            if (latA !== latB) {
-                return latA - latB;
-            }
-
-            // 3. Multi-Language / Preferred Audio (tie-breaker for exact same latency)
+            // 2. Multi-Language / Preferred Audio (if configured)
             if (hasAudioPref) {
                 const audioA = getAudioScore(a, prefLanguages, config?.prioritizeHindi);
                 const audioB = getAudioScore(b, prefLanguages, config?.prioritizeHindi);
@@ -1559,13 +1469,35 @@ async function sortAndTagStreams(streams, config = {}, providerAnalytics) {
                 }
             }
 
-            // 4. Higher resolution & quality as tie-breaker
+            // 3. Resolution Tier grouping:
+            // 4K & 1080p FHD = tier 3, 720p HD = tier 2, 480p/SD = tier 1
+            // Guarantees high quality streams are at the top and never overtaken by 480p streams
+            const getSpeedResTier = (s) => {
+                const r = getResolutionTier(s);
+                if (r >= 3) return 3; // 4K & 1080p
+                if (r === 2) return 2; // 720p
+                return 1;              // 480p / SD / Unknown
+            };
+
+            const sTierA = getSpeedResTier(a);
+            const sTierB = getSpeedResTier(b);
+            if (sTierA !== sTierB) {
+                return sTierB - sTierA;
+            }
+
+            // 4. Exact latency (lowest ms first) — STRICT PRIMARY sort within each resolution tier!
+            if (latA !== latB) {
+                return latA - latB;
+            }
+
+            // 5. Higher resolution (e.g. 4K vs 1080p if both have exact same latency)
             const resA = getResolutionTier(a);
             const resB = getResolutionTier(b);
             if (resA !== resB) {
                 return resB - resA;
             }
 
+            // 6. Quality score as tie-breaker
             const scoreA = getQualityScore(a);
             const scoreB = getQualityScore(b);
             if (scoreA !== scoreB) {
@@ -1592,27 +1524,6 @@ async function sortAndTagStreams(streams, config = {}, providerAnalytics) {
             }
         }
 
-        // Smart Mirror Stacking: Wrap multiple mirror URLs with the Self-Healing Failover Proxy
-        if (Array.isArray(stremioStream.mirrors) && stremioStream.mirrors.length > 1 && stremioStream.url && stremioStream.url.startsWith('http')) {
-            const fallbackUrls = stremioStream.mirrors
-                .map(m => m.url)
-                .filter(u => u && u !== stremioStream.url && typeof u === 'string' && u.startsWith('http'));
-
-            if (fallbackUrls.length > 0) {
-                stremioStream.mirrorUrls = fallbackUrls;
-                stremioStream.behaviorHints = {
-                    ...(stremioStream.behaviorHints || {}),
-                    mirrors: fallbackUrls,
-                    mirrorCount: stremioStream.mirrors.length
-                };
-
-                if (config.addonHost) {
-                    const protocol = config.addonProtocol || 'https';
-                    stremioStream.url = `${protocol}://${config.addonHost}/proxy/stream?url=${encodeURIComponent(stremioStream.url)}&fallbacks=${encodeURIComponent(JSON.stringify(fallbackUrls))}`;
-                }
-            }
-        }
-
         // Enrich behaviorHints.filename and clientResolve for Nuvio native and fusion badges
         const meta = s._preparsedMeta || parseStreamMetadata(s._rawStream || stremioStream);
         const synthFilename = buildNuvioSceneFilename(meta, config && config.target ? config.target : {});
@@ -1621,6 +1532,49 @@ async function sortAndTagStreams(streams, config = {}, providerAnalytics) {
             ...(stremioStream.behaviorHints || {}),
             filename: synthFilename
         };
+
+        const customHeaders = {
+            ...(stremioStream.headers || {}),
+            ...(stremioStream.behaviorHints?.proxyHeaders?.request || {})
+        };
+        const hasCustomHeaders = Object.keys(customHeaders).length > 0;
+        const fallbackUrls = (Array.isArray(stremioStream.mirrors) ? stremioStream.mirrors : [])
+            .map(m => m.url)
+            .filter(u => u && u !== stremioStream.url && typeof u === 'string' && u.startsWith('http'));
+        const hasFallbacks = fallbackUrls.length > 0;
+
+        if (hasFallbacks) {
+            stremioStream.mirrorUrls = fallbackUrls;
+            stremioStream.behaviorHints.mirrors = fallbackUrls;
+            stremioStream.behaviorHints.mirrorCount = stremioStream.mirrors.length;
+        }
+
+        if (hasCustomHeaders) {
+            stremioStream.behaviorHints.proxyHeaders = {
+                ...(stremioStream.behaviorHints.proxyHeaders || {}),
+                request: {
+                    ...(stremioStream.behaviorHints.proxyHeaders?.request || {}),
+                    ...customHeaders
+                }
+            };
+        }
+
+        // If stream has custom headers (Referer, Origin, etc.) OR multiple fallback mirrors:
+        // ExoPlayer & mobile players drop custom headers when hitting remote CDNs directly, resulting in 403 Forbidden buffering loops.
+        // Route through /proxy/stream to forward headers, rewrite HLS playlists, and enable seamless fallback failover.
+        if (config.addonHost && stremioStream.url && stremioStream.url.startsWith('http') && (hasCustomHeaders || hasFallbacks)) {
+            const protocol = config.addonProtocol || 'https';
+            const params = new URLSearchParams();
+            params.set('url', stremioStream.url);
+            if (hasFallbacks) {
+                params.set('fallbacks', JSON.stringify(fallbackUrls));
+            }
+            if (hasCustomHeaders) {
+                params.set('headers', JSON.stringify(customHeaders));
+            }
+            const proxyFilename = synthFilename || 'video.mp4';
+            stremioStream.url = `${protocol}://${config.addonHost}/proxy/stream/${encodeURIComponent(proxyFilename)}?${params.toString()}`;
+        }
 
         const target = (config && config.target) || {};
         const mediaType = target.type === 'series' || target.type === 'tv' ? 'series' : 'movie';
