@@ -5407,14 +5407,20 @@
                         border-color: rgba(139, 92, 246, 0.6);
                         box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.18);
                     }
-                    .bench-presets-row {
-                        display: flex;
-                        gap: 8px;
-                        flex-wrap: wrap;
-                        align-items: center;
+                    .bench-presets-container {
                         padding-top: 14px;
-                        border-top: 1px solid rgba(255, 255, 255, 0.05);
+                        border-top: 1px solid rgba(255, 255, 255, 0.06);
                         margin-bottom: 18px;
+                        display: flex;
+                        flex-direction: column;
+                        gap: 10px;
+                    }
+                    .bench-presets-header {
+                        display: flex;
+                        align-items: center;
+                        justify-content: space-between;
+                        flex-wrap: wrap;
+                        gap: 8px;
                     }
                     .bench-preset-label {
                         font-size: 11px;
@@ -5426,36 +5432,111 @@
                         gap: 5px;
                         user-select: none;
                     }
+                    .bench-cat-tabs {
+                        display: flex;
+                        gap: 4px;
+                        flex-wrap: wrap;
+                        align-items: center;
+                    }
+                    .bench-cat-tab {
+                        cursor: pointer;
+                        background: rgba(255, 255, 255, 0.04);
+                        border: 1px solid rgba(255, 255, 255, 0.08);
+                        border-radius: 8px;
+                        padding: 3px 9px;
+                        font-size: 11px;
+                        font-weight: 700;
+                        color: var(--text-muted);
+                        transition: all 0.18s ease;
+                        user-select: none;
+                    }
+                    .bench-cat-tab:hover {
+                        color: #ffffff;
+                        background: rgba(255, 255, 255, 0.08);
+                        border-color: rgba(255, 255, 255, 0.16);
+                    }
+                    .bench-cat-tab.active {
+                        background: rgba(139, 92, 246, 0.22);
+                        color: #c084fc;
+                        border-color: rgba(139, 92, 246, 0.45);
+                    }
+                    .bench-chips-wrapper {
+                        display: flex;
+                        gap: 7px;
+                        flex-wrap: wrap;
+                        align-items: center;
+                    }
                     .bench-preset-chip {
                         cursor: pointer;
-                        background: rgba(0, 0, 0, 0.3);
+                        background: rgba(0, 0, 0, 0.35);
                         color: var(--text-secondary);
                         border: 1px solid rgba(255, 255, 255, 0.08);
                         border-radius: 10px;
-                        padding: 6px 14px;
-                        font-size: 12px;
+                        padding: 6px 12px;
+                        font-size: 11.5px;
                         font-weight: 700;
                         transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
                         user-select: none;
                         outline: none;
                         display: inline-flex;
                         align-items: center;
-                        gap: 5px;
+                        gap: 6px;
+                    }
+                    .bench-preset-chip .preset-type-badge {
+                        font-size: 9px;
+                        font-weight: 800;
+                        padding: 1px 5px;
+                        border-radius: 5px;
+                        background: rgba(255, 255, 255, 0.06);
+                        color: var(--text-muted);
+                        letter-spacing: 0.3px;
+                    }
+                    .bench-preset-chip.active .preset-type-badge {
+                        background: rgba(139, 92, 246, 0.35);
+                        color: #f3e8ff;
                     }
                     .bench-preset-chip:hover:not(.active) {
                         color: #ffffff;
-                        background: rgba(255, 255, 255, 0.06);
+                        background: rgba(255, 255, 255, 0.07);
                         border-color: rgba(255, 255, 255, 0.18);
                         transform: translateY(-1px);
                     }
                     .bench-preset-chip.active {
-                        background: rgba(139, 92, 246, 0.2);
+                        background: rgba(139, 92, 246, 0.22);
                         color: #c084fc;
-                        border-color: rgba(139, 92, 246, 0.45);
+                        border-color: rgba(139, 92, 246, 0.5);
                         box-shadow: 0 0 12px rgba(139, 92, 246, 0.25);
                     }
                     .bench-preset-chip:active {
                         transform: scale(0.96);
+                    }
+                    .bench-recommendation-bar {
+                        display: none;
+                        align-items: center;
+                        justify-content: space-between;
+                        flex-wrap: wrap;
+                        gap: 8px;
+                        font-size: 11.5px;
+                        padding: 8px 12px;
+                        background: rgba(139, 92, 246, 0.08);
+                        border: 1px solid rgba(139, 92, 246, 0.2);
+                        border-radius: 10px;
+                        color: var(--text-secondary);
+                    }
+                    .bench-rec-scraper-btn {
+                        background: rgba(139, 92, 246, 0.25);
+                        border: 1px solid rgba(139, 92, 246, 0.4);
+                        color: #fff;
+                        padding: 3px 10px;
+                        border-radius: 6px;
+                        font-size: 11px;
+                        font-weight: 700;
+                        cursor: pointer;
+                        transition: all 0.15s ease;
+                    }
+                    .bench-rec-scraper-btn:hover {
+                        background: rgba(139, 92, 246, 0.45);
+                        transform: scale(1.03);
                     }
                     .bench-run-wrapper {
                         display: flex;
@@ -7519,14 +7600,103 @@
                             </div>
                         </div>
 
-                        <!-- Quick Presets Row (Matches Site Filter Aesthetics) -->
-                        <div class="bench-presets-row">
-                            <span class="bench-preset-label"><span style="color: #fbbf24;">⚡</span> QUICK PRESETS:</span>
-                            <button type="button" class="bench-preset-chip active" onclick="setBenchPreset('550', 'movie', 'Fight Club', this)">🥊 Fight Club (550)</button>
-                            <button type="button" class="bench-preset-chip" onclick="setBenchPreset('872585', 'movie', 'Oppenheimer', this)">💣 Oppenheimer (872585)</button>
-                            <button type="button" class="bench-preset-chip" onclick="setBenchPreset('66732', 'tv', 'Stranger Things', this)">👾 Stranger Things (66732)</button>
-                            <button type="button" class="bench-preset-chip" onclick="setBenchPreset('872906', 'movie', 'Jawan', this)">🔥 Jawan (872906)</button>
-                            <button type="button" class="bench-preset-chip" onclick="setBenchPreset('1429', 'tv', 'Attack on Titan', this)">🌸 Attack on Titan (1429)</button>
+                        <!-- Quick Presets Categorized Container -->
+                        <div class="bench-presets-container">
+                            <div class="bench-presets-header">
+                                <span class="bench-preset-label">
+                                    <span style="color: #fbbf24;">⚡</span> QUICK PRESETS:
+                                </span>
+                                <div class="bench-cat-tabs">
+                                    <button type="button" class="bench-cat-tab active" onclick="filterBenchCategory('all', this)">⚡ All</button>
+                                    <button type="button" class="bench-cat-tab" onclick="filterBenchCategory('movie', this)">🎬 Movies</button>
+                                    <button type="button" class="bench-cat-tab" onclick="filterBenchCategory('tv', this)">📺 TV Series</button>
+                                    <button type="button" class="bench-cat-tab" onclick="filterBenchCategory('indian', this)">🇮🇳 Indian</button>
+                                    <button type="button" class="bench-cat-tab" onclick="filterBenchCategory('anime', this)">🌸 Anime</button>
+                                    <button type="button" class="bench-cat-tab" onclick="filterBenchCategory('cartoon', this)">🧀 Cartoons</button>
+                                    <button type="button" class="bench-cat-tab" onclick="filterBenchCategory('kdrama', this)">🥢 K-Drama</button>
+                                </div>
+                            </div>
+
+                            <!-- Preset Chips -->
+                            <div class="bench-chips-wrapper" id="bench-chips-wrapper">
+                                <!-- Movies -->
+                                <button type="button" class="bench-preset-chip active" data-category="movie" onclick="setBenchPreset('550', 'movie', 'Fight Club', this, 1, 1, ['moviebox', 'vidrock', 'redflix', 'moviesmod', 'netmirror', 'dahmermovies'])">
+                                    <span>🥊</span> Fight Club <span class="preset-type-badge">Movie • 550</span>
+                                </button>
+                                <button type="button" class="bench-preset-chip" data-category="movie" onclick="setBenchPreset('872585', 'movie', 'Oppenheimer', this, 1, 1, ['multimovies', 'moviebox', 'moviesmod', 'vegamovies', 'netmirror'])">
+                                    <span>💣</span> Oppenheimer <span class="preset-type-badge">Movie • 872585</span>
+                                </button>
+                                <button type="button" class="bench-preset-chip" data-category="movie" onclick="setBenchPreset('155', 'movie', 'The Dark Knight', this, 1, 1, ['4khdhub', 'movix', 'playimdb', 'moviebox'])">
+                                    <span>🦇</span> The Dark Knight <span class="preset-type-badge">Movie • 155</span>
+                                </button>
+                                <button type="button" class="bench-preset-chip" data-category="movie" onclick="setBenchPreset('157336', 'movie', 'Interstellar', this, 1, 1, ['moviebox', 'moviesmod', 'vegamovies', 'netmirror'])">
+                                    <span>🌌</span> Interstellar <span class="preset-type-badge">Movie • 157336</span>
+                                </button>
+
+                                <!-- TV Series -->
+                                <button type="button" class="bench-preset-chip" data-category="tv" onclick="setBenchPreset('66732', 'tv', 'Stranger Things', this, 1, 1, ['castle', 'moviebox', 'netmirror', 'torrentio'])">
+                                    <span>👾</span> Stranger Things <span class="preset-type-badge">TV S1E1 • 66732</span>
+                                </button>
+                                <button type="button" class="bench-preset-chip" data-category="tv" onclick="setBenchPreset('1396', 'tv', 'Breaking Bad', this, 1, 1, ['castle', 'moviebox', '4khdhub'])">
+                                    <span>🧪</span> Breaking Bad <span class="preset-type-badge">TV S1E1 • 1396</span>
+                                </button>
+                                <button type="button" class="bench-preset-chip" data-category="tv" onclick="setBenchPreset('76479', 'tv', 'The Boys', this, 1, 1, ['castle', 'netmirror', 'moviebox'])">
+                                    <span>⚡</span> The Boys <span class="preset-type-badge">TV S1E1 • 76479</span>
+                                </button>
+
+                                <!-- Indian -->
+                                <button type="button" class="bench-preset-chip" data-category="indian" onclick="setBenchPreset('872906', 'movie', 'Jawan', this, 1, 1, ['einthusan', 'hdhub4u', 'moviesdrive', 'vegamovies', 'desiflix'])">
+                                    <span>🔥</span> Jawan <span class="preset-type-badge">Movie • 872906</span>
+                                </button>
+                                <button type="button" class="bench-preset-chip" data-category="indian" onclick="setBenchPreset('1022789', 'movie', 'Stree 2', this, 1, 1, ['hdhub4u', 'vegamovies', 'moviesdrive', 'multimovies'])">
+                                    <span>👻</span> Stree 2 <span class="preset-type-badge">Movie • 1022789</span>
+                                </button>
+                                <button type="button" class="bench-preset-chip" data-category="indian" onclick="setBenchPreset('579974', 'movie', 'RRR', this, 1, 1, ['einthusan', 'multimovies', 'desiflix'])">
+                                    <span>🐅</span> RRR <span class="preset-type-badge">Movie • 579974</span>
+                                </button>
+                                <button type="button" class="bench-preset-chip" data-category="indian" onclick="setBenchPreset('801688', 'movie', 'Kalki 2898 AD', this, 1, 1, ['hdhub4u', 'moviesdrive', 'vegamovies'])">
+                                    <span>🤖</span> Kalki 2898 AD <span class="preset-type-badge">Movie • 801688</span>
+                                </button>
+
+                                <!-- Anime -->
+                                <button type="button" class="bench-preset-chip" data-category="anime" onclick="setBenchPreset('1429', 'tv', 'Attack on Titan', this, 1, 1, ['animesalt', 'animeworld', 'anizone', 'anikage', 'reanime', 'anizen', 'kurage'])">
+                                    <span>🌸</span> Attack on Titan <span class="preset-type-badge">TV S1E1 • 1429</span>
+                                </button>
+                                <button type="button" class="bench-preset-chip" data-category="anime" onclick="setBenchPreset('85937', 'tv', 'Demon Slayer', this, 1, 1, ['animesalt', 'animeworld', 'anizone', 'anikage', 'reanime'])">
+                                    <span>⚔️</span> Demon Slayer <span class="preset-type-badge">TV S1E1 • 85937</span>
+                                </button>
+                                <button type="button" class="bench-preset-chip" data-category="anime" onclick="setBenchPreset('95479', 'tv', 'Jujutsu Kaisen', this, 1, 1, ['animesalt', 'animeworld', 'anizone', 'reanime'])">
+                                    <span>👁️</span> Jujutsu Kaisen <span class="preset-type-badge">TV S1E1 • 95479</span>
+                                </button>
+                                <button type="button" class="bench-preset-chip" data-category="anime" onclick="setBenchPreset('129', 'movie', 'Spirited Away', this, 1, 1, ['animesalt', 'anizone', 'animeworld'])">
+                                    <span>🏮</span> Spirited Away <span class="preset-type-badge">Movie • 129</span>
+                                </button>
+
+                                <!-- Cartoons -->
+                                <button type="button" class="bench-preset-chip" data-category="cartoon" onclick="setBenchPreset('217288', 'tv', 'Tom & Jerry', this, 1, 1, ['topcartoons'])">
+                                    <span>🧀</span> Tom & Jerry <span class="preset-type-badge">TV S1E1 • 217288</span>
+                                </button>
+                                <button type="button" class="bench-preset-chip" data-category="cartoon" onclick="setBenchPreset('1338692', 'movie', 'Doraemon: Nobita', this, 1, 1, ['puretoons', 'toonstream'])">
+                                    <span>🐱</span> Doraemon <span class="preset-type-badge">Movie • 1338692</span>
+                                </button>
+                                <button type="button" class="bench-preset-chip" data-category="cartoon" onclick="setBenchPreset('1612', 'tv', 'Ben 10', this, 1, 1, ['topcartoons', 'puretoons', 'toonstream'])">
+                                    <span>⌚</span> Ben 10 <span class="preset-type-badge">TV S1E1 • 1612</span>
+                                </button>
+                                <button type="button" class="bench-preset-chip" data-category="cartoon" onclick="setBenchPreset('38734', 'tv', 'Shinchan', this, 1, 1, ['puretoons', 'toonstream'])">
+                                    <span>🍫</span> Shinchan <span class="preset-type-badge">TV S1E1 • 38734</span>
+                                </button>
+
+                                <!-- K-Drama -->
+                                <button type="button" class="bench-preset-chip" data-category="kdrama" onclick="setBenchPreset('93405', 'tv', 'Squid Game', this, 1, 1, ['moviebox', 'castle', 'netmirror'])">
+                                    <span>🦑</span> Squid Game <span class="preset-type-badge">TV S1E1 • 93405</span>
+                                </button>
+                                <button type="button" class="bench-preset-chip" data-category="kdrama" onclick="setBenchPreset('99966', 'tv', 'All of Us Are Dead', this, 1, 1, ['moviebox', 'castle', 'netmirror'])">
+                                    <span>🧟</span> All of Us Are Dead <span class="preset-type-badge">TV S1E1 • 99966</span>
+                                </button>
+                            </div>
+
+                            <!-- Smart Compatibility Advice -->
+                            <div id="bench-recommendation-bar" class="bench-recommendation-bar"></div>
                         </div>
 
                         <!-- Run Test Button (Centered & Beautifully Proportioned) -->
@@ -14095,31 +14265,167 @@
             }
         }
 
+        function filterBenchCategory(category, btn) {
+            triggerHaptic('light');
+            document.querySelectorAll('.bench-cat-tab').forEach(t => t.classList.remove('active'));
+            if (btn) btn.classList.add('active');
+            const chips = document.querySelectorAll('.bench-preset-chip');
+            chips.forEach(chip => {
+                const cat = chip.dataset.category || 'all';
+                if (category === 'all' || cat === category) {
+                    chip.style.display = 'inline-flex';
+                } else {
+                    chip.style.display = 'none';
+                }
+            });
+        }
+
+        function selectBenchScraper(scraperName) {
+            const sel = document.getElementById('bench-scraper-select');
+            if (!sel) return;
+            const cleanTarget = (scraperName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+            const opt = Array.from(sel.options).find(o => {
+                const cleanVal = (o.value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                return cleanVal === cleanTarget || cleanVal.includes(cleanTarget) || cleanTarget.includes(cleanVal);
+            });
+            if (opt) {
+                sel.value = opt.value;
+                if (typeof sel._syncCustomSelect === 'function') sel._syncCustomSelect();
+                showToast(`Switched Target Scraper to: ${opt.value}`);
+                const recBar = document.getElementById('bench-recommendation-bar');
+                if (recBar) recBar.style.display = 'none';
+            }
+        }
+
+        function setBenchPreset(id, type, name, btn, season = 1, episode = 1, recScrapers = []) {
+            triggerHaptic('light');
+            document.getElementById('bench-media-id').value = id;
+            const typeSel = document.getElementById('bench-media-type');
+            if (typeSel) {
+                typeSel.value = type;
+                if (typeof typeSel._syncCustomSelect === 'function') typeSel._syncCustomSelect();
+                toggleBenchTvFields(type);
+            }
+            if (type === 'tv') {
+                const sInput = document.getElementById('bench-season');
+                const eInput = document.getElementById('bench-episode');
+                if (sInput) sInput.value = season || 1;
+                if (eInput) eInput.value = episode || 1;
+            }
+            if (btn) {
+                document.querySelectorAll('.bench-preset-chip').forEach(c => c.classList.remove('active'));
+                btn.classList.add('active');
+            }
+
+            // Sync Category Tab Highlight
+            if (btn && btn.dataset.category) {
+                const cat = btn.dataset.category;
+                document.querySelectorAll('.bench-cat-tab').forEach(t => {
+                    const tOnclick = t.getAttribute('onclick') || '';
+                    if (tOnclick.includes(`'${cat}'`)) {
+                        t.classList.add('active');
+                    } else if (!tOnclick.includes("'all'")) {
+                        t.classList.remove('active');
+                    }
+                });
+            }
+
+            // Recommended Scrapers Guidance Bar
+            const recBar = document.getElementById('bench-recommendation-bar');
+            if (recBar && Array.isArray(recScrapers) && recScrapers.length > 0) {
+                const curScraper = (document.getElementById('bench-scraper-select')?.value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                const isMatched = recScrapers.some(s => {
+                    const cleanS = s.toLowerCase().replace(/[^a-z0-9]/g, '');
+                    return curScraper.includes(cleanS) || cleanS.includes(curScraper);
+                });
+                if (!isMatched) {
+                    const firstRec = recScrapers[0];
+                    recBar.innerHTML = `
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <span>💡</span>
+                            <span><b>${name}</b> catalog is best tested on: <b style="color: #c084fc;">${recScrapers.slice(0, 3).join(', ')}</b></span>
+                        </div>
+                        <button type="button" class="bench-rec-scraper-btn" onclick="selectBenchScraper('${firstRec}')">
+                            Switch to ${firstRec}
+                        </button>
+                    `;
+                    recBar.style.display = 'flex';
+                } else {
+                    recBar.style.display = 'none';
+                }
+            } else if (recBar) {
+                recBar.style.display = 'none';
+            }
+
+            showToast(`Loaded preset: ${name}`);
+        }
+
         function applyOptimalBenchPreset(scraperName) {
-            const name = (scraperName || '').toLowerCase();
+            const name = (scraperName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
             const idInput = document.getElementById('bench-media-id');
             const typeSel = document.getElementById('bench-media-type');
             if (!idInput || !typeSel) return;
 
-            // Only switch if current value is default Fight Club (550) or user hasn't typed custom ID
-            const currentId = idInput.value.trim();
-            if (currentId === '550' || currentId === 'tt0137523' || currentId === '1429' || currentId === '1338692' || currentId === '872906' || currentId === '872585') {
-                if (/ani|kurage|reanime/i.test(name)) {
-                    idInput.value = '1429'; // Attack on Titan
-                    typeSel.value = 'tv';
-                } else if (/cartoon|puretoon|toon/i.test(name)) {
-                    idInput.value = '1338692'; // Doraemon
-                    typeSel.value = 'movie';
-                } else if (/einthusan/i.test(name)) {
-                    idInput.value = '872906'; // Jawan
-                    typeSel.value = 'movie';
-                } else {
-                    idInput.value = '872585'; // Oppenheimer
-                    typeSel.value = 'movie';
-                }
-                if (typeof typeSel._syncCustomSelect === 'function') typeSel._syncCustomSelect();
-                toggleBenchTvFields(typeSel.value);
+            // Detect Genre
+            const isAnime = /ani|kurage|reanime/i.test(name);
+            const isCartoon = /cartoon|puretoon|toon/i.test(name);
+            const isIndian = /einthusan|hdhub|moviesdrive|desiflix/i.test(name);
+            const isKDrama = /squid|drama|asian/i.test(name);
+
+            let optimalId = '872585';
+            let optimalType = 'movie';
+            let optimalCat = 'movie';
+
+            if (isAnime) {
+                optimalId = '1429';
+                optimalType = 'tv';
+                optimalCat = 'anime';
+            } else if (/topcartoon/i.test(name)) {
+                optimalId = '217288';
+                optimalType = 'tv';
+                optimalCat = 'cartoon';
+            } else if (isCartoon) {
+                optimalId = '1338692';
+                optimalType = 'movie';
+                optimalCat = 'cartoon';
+            } else if (isIndian) {
+                optimalId = '872906';
+                optimalType = 'movie';
+                optimalCat = 'indian';
+            } else if (isKDrama) {
+                optimalId = '93405';
+                optimalType = 'tv';
+                optimalCat = 'kdrama';
             }
+
+            idInput.value = optimalId;
+            typeSel.value = optimalType;
+            if (typeof typeSel._syncCustomSelect === 'function') typeSel._syncCustomSelect();
+            toggleBenchTvFields(optimalType);
+
+            if (optimalType === 'tv') {
+                const sInput = document.getElementById('bench-season');
+                const eInput = document.getElementById('bench-episode');
+                if (sInput) sInput.value = 1;
+                if (eInput) eInput.value = 1;
+            }
+
+            // Sync category tabs and chips
+            document.querySelectorAll('.bench-cat-tab').forEach(t => {
+                const tOnclick = t.getAttribute('onclick') || '';
+                t.classList.toggle('active', tOnclick.includes(`'${optimalCat}'`));
+            });
+            const chips = document.querySelectorAll('.bench-preset-chip');
+            chips.forEach(chip => {
+                const cat = chip.dataset.category || 'all';
+                chip.style.display = (optimalCat === 'all' || cat === optimalCat) ? 'inline-flex' : 'none';
+                const cOnclick = chip.getAttribute('onclick') || '';
+                chip.classList.toggle('active', cOnclick.includes(`'${optimalId}'`));
+            });
+
+            // Hide recommendation bar because scraper was selected directly
+            const recBar = document.getElementById('bench-recommendation-bar');
+            if (recBar) recBar.style.display = 'none';
         }
 
         function openScraperInLab(name) {
@@ -14139,22 +14445,6 @@
             const isTv = type === 'tv';
             if (tvFields) tvFields.style.display = isTv ? 'block' : 'none';
             if (grid) grid.classList.toggle('has-tv', isTv);
-        }
-
-        function setBenchPreset(id, type, name, btn) {
-            triggerHaptic('light');
-            document.getElementById('bench-media-id').value = id;
-            const typeSel = document.getElementById('bench-media-type');
-            if (typeSel) {
-                typeSel.value = type;
-                if (typeof typeSel._syncCustomSelect === 'function') typeSel._syncCustomSelect();
-                toggleBenchTvFields(type);
-            }
-            if (btn) {
-                document.querySelectorAll('.bench-preset-chip').forEach(c => c.classList.remove('active'));
-                btn.classList.add('active');
-            }
-            showToast(`Loaded preset: ${name}`);
         }
 
         async function runBenchmarkTest() {

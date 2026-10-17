@@ -777,11 +777,20 @@ class ProviderLoader {
             }
 
             let targetProvider = null;
+            const cleanInput = (providerName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
             for (const mUrl of manifestsToTry) {
                 if (!mUrl) continue;
                 try {
                     const providers = await this.loadProviders(mUrl);
-                    targetProvider = providers.find(p => p.name.toLowerCase() === providerName.toLowerCase() || p.id === providerName);
+                    targetProvider = providers.find(p => {
+                        const pName = (p.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                        const pId = (p.id || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                        if (pName === cleanInput || pId === cleanInput) return true;
+                        if (cleanInput === 'topcartoon' && pName === 'topcartoons') return true;
+                        if (cleanInput === 'puretones' && pName === 'puretoons') return true;
+                        if (cleanInput.length >= 5 && (pName.startsWith(cleanInput) || cleanInput.startsWith(pName))) return true;
+                        return false;
+                    });
                     if (targetProvider) break;
                 } catch (e) {}
             }
@@ -835,12 +844,26 @@ class ProviderLoader {
             }
 
             let streams = await targetProvider.getStreams(testMediaId, testType, defaultSeason, defaultEpisode, testConfig);
-            // Fallback for movie providers if Fight Club (1999) has no seeds on newer indexes
-            if ((!streams || streams.length === 0) && (testMediaId === 'tt0137523' || testMediaId === '550') && !isAnimeScraper && !isCartoonScraper && !isIndianScraper) {
+            // Secondary fallback if selected query yielded 0 streams
+            if (!streams || streams.length === 0) {
                 try {
-                    const oppenheimerStreams = await targetProvider.getStreams('872585', 'movie', null, null, testConfig);
-                    if (Array.isArray(oppenheimerStreams) && oppenheimerStreams.length > 0) {
-                        streams = oppenheimerStreams;
+                    if (/topcartoon/i.test(pId)) {
+                        const tcStreams = await targetProvider.getStreams('217288', 'tv', 1, 1, testConfig);
+                        if (Array.isArray(tcStreams) && tcStreams.length > 0) streams = tcStreams;
+                    } else if (isAnimeScraper) {
+                        const aotStreams = await targetProvider.getStreams('1429', 'tv', 1, 1, testConfig);
+                        if (Array.isArray(aotStreams) && aotStreams.length > 0) streams = aotStreams;
+                    } else if (isIndianScraper) {
+                        const jawanStreams = await targetProvider.getStreams('872906', 'movie', null, null, testConfig);
+                        if (Array.isArray(jawanStreams) && jawanStreams.length > 0) streams = jawanStreams;
+                    } else {
+                        const oppenheimerStreams = await targetProvider.getStreams('872585', 'movie', null, null, testConfig);
+                        if (Array.isArray(oppenheimerStreams) && oppenheimerStreams.length > 0) {
+                            streams = oppenheimerStreams;
+                        } else {
+                            const fightClubStreams = await targetProvider.getStreams('550', 'movie', null, null, testConfig);
+                            if (Array.isArray(fightClubStreams) && fightClubStreams.length > 0) streams = fightClubStreams;
+                        }
                     }
                 } catch (_) {}
             }
@@ -913,7 +936,15 @@ class ProviderLoader {
                 try {
                     const manifestRes = await fetchWithRetry(mUrl, { timeout: 8000, httpAgent, httpsAgent });
                     const manifest = manifestRes.data;
-                    const scraper = (manifest.scrapers || []).find(s => s.name.toLowerCase() === providerName.toLowerCase() || s.id === providerName);
+                    const scraper = (manifest.scrapers || []).find(s => {
+                        const sName = (s.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                        const sId = (s.id || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                        if (sName === cleanKey || sId === cleanKey) return true;
+                        if (cleanKey === 'topcartoon' && sName === 'topcartoons') return true;
+                        if (cleanKey === 'puretones' && sName === 'puretoons') return true;
+                        if (cleanKey.length >= 5 && (sName.startsWith(cleanKey) || cleanKey.startsWith(sName))) return true;
+                        return false;
+                    });
                     if (scraper) {
                         foundScraper = scraper;
                         targetManifestUrl = mUrl;
