@@ -7679,8 +7679,8 @@
                                 <button type="button" class="bench-preset-chip" data-category="cartoon" onclick="setBenchPreset('1338692', 'movie', 'Doraemon: Nobita', this, 1, 1, ['puretoons', 'toonstream'])">
                                     <span>🐱</span> Doraemon <span class="preset-type-badge">Movie • 1338692</span>
                                 </button>
-                                <button type="button" class="bench-preset-chip" data-category="cartoon" onclick="setBenchPreset('1612', 'tv', 'Ben 10', this, 1, 1, ['topcartoons', 'puretoons', 'toonstream'])">
-                                    <span>⌚</span> Ben 10 <span class="preset-type-badge">TV S1E1 • 1612</span>
+                                <button type="button" class="bench-preset-chip" data-category="cartoon" onclick="setBenchPreset('4686', 'tv', 'Ben 10', this, 1, 1, ['topcartoons', 'puretoons', 'toonstream'])">
+                                    <span>⌚</span> Ben 10 <span class="preset-type-badge">TV S1E1 • 4686</span>
                                 </button>
                                 <button type="button" class="bench-preset-chip" data-category="cartoon" onclick="setBenchPreset('38734', 'tv', 'Shinchan', this, 1, 1, ['puretoons', 'toonstream'])">
                                     <span>🍫</span> Shinchan <span class="preset-type-badge">TV S1E1 • 38734</span>
@@ -14263,6 +14263,7 @@
             } else {
                 initCustomSelect(sel);
             }
+            if (sel.value) applyOptimalBenchPreset(sel.value);
         }
 
         function filterBenchCategory(category, btn) {
@@ -14291,6 +14292,7 @@
             if (opt) {
                 sel.value = opt.value;
                 if (typeof sel._syncCustomSelect === 'function') sel._syncCustomSelect();
+                applyOptimalBenchPreset(opt.value);
                 showToast(`Switched Target Scraper to: ${opt.value}`);
                 const recBar = document.getElementById('bench-recommendation-bar');
                 if (recBar) recBar.style.display = 'none';
@@ -14368,8 +14370,8 @@
 
             // Detect Genre
             const isAnime = /ani|kurage|reanime/i.test(name);
-            const isCartoon = /cartoon|puretoon|toon/i.test(name);
-            const isIndian = /einthusan|hdhub|moviesdrive|desiflix/i.test(name);
+            const isCartoon = /cartoon|puretoon|puretone|toon/i.test(name);
+            const isIndian = /einthus|hdhub|moviesdrive|desiflix/i.test(name);
             const isKDrama = /squid|drama|asian/i.test(name);
 
             let optimalId = '872585';

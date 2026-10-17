@@ -768,6 +768,7 @@ class ProviderLoader {
             const manifestsToTry = ['local'];
             if (manifestUrl && manifestUrl !== 'local') manifestsToTry.push(manifestUrl);
             const fallbackManifests = [
+                'https://raw.githubusercontent.com/SA7ANI/cb-providers/refs/heads/main/manifest.json',
                 'https://raw.githubusercontent.com/yoruix/nuvio-providers/refs/heads/main/manifest.json',
                 'https://raw.githubusercontent.com/phisher98/Nuvio-Providers/main/manifest.json',
                 'https://cdn.jsdelivr.net/gh/D3adlyRocket/All-in-One-Nuvio@main/manifest.json'
@@ -821,14 +822,15 @@ class ProviderLoader {
             const pId = (targetProvider.name || '') + ' ' + (providerName || '');
             const isAnimeScraper = /ani|kurage|reanime/i.test(pId);
             const isCartoonScraper = /cartoon|puretoon|toon/i.test(pId);
-            const isIndianScraper = /einthusan/i.test(pId);
+            const isIndianScraper = /einthus|hdhub|moviesdrive|desiflix/i.test(pId);
 
-            if ((testMediaId === 'tt0137523' || testMediaId === '550')) {
+            const isInitialPlaceholder = !mediaId || mediaId === 'tt0137523' || mediaId === '550';
+            if (isInitialPlaceholder) {
                 if (isAnimeScraper) {
                     testMediaId = '1429';
                     testType = 'tv';
-                    defaultSeason = parsedSeason;
-                    defaultEpisode = parsedEpisode;
+                    defaultSeason = parsedSeason || 1;
+                    defaultEpisode = parsedEpisode || 1;
                 } else if (/topcartoon/i.test(pId)) {
                     testMediaId = '217288';
                     testType = 'tv';
@@ -840,33 +842,13 @@ class ProviderLoader {
                 } else if (isIndianScraper) {
                     testMediaId = '872906';
                     testType = 'movie';
+                } else if (/moviesmod/i.test(pId)) {
+                    testMediaId = '872585';
+                    testType = 'movie';
                 }
             }
 
-            let streams = await targetProvider.getStreams(testMediaId, testType, defaultSeason, defaultEpisode, testConfig);
-            // Secondary fallback if selected query yielded 0 streams
-            if (!streams || streams.length === 0) {
-                try {
-                    if (/topcartoon/i.test(pId)) {
-                        const tcStreams = await targetProvider.getStreams('217288', 'tv', 1, 1, testConfig);
-                        if (Array.isArray(tcStreams) && tcStreams.length > 0) streams = tcStreams;
-                    } else if (isAnimeScraper) {
-                        const aotStreams = await targetProvider.getStreams('1429', 'tv', 1, 1, testConfig);
-                        if (Array.isArray(aotStreams) && aotStreams.length > 0) streams = aotStreams;
-                    } else if (isIndianScraper) {
-                        const jawanStreams = await targetProvider.getStreams('872906', 'movie', null, null, testConfig);
-                        if (Array.isArray(jawanStreams) && jawanStreams.length > 0) streams = jawanStreams;
-                    } else {
-                        const oppenheimerStreams = await targetProvider.getStreams('872585', 'movie', null, null, testConfig);
-                        if (Array.isArray(oppenheimerStreams) && oppenheimerStreams.length > 0) {
-                            streams = oppenheimerStreams;
-                        } else {
-                            const fightClubStreams = await targetProvider.getStreams('550', 'movie', null, null, testConfig);
-                            if (Array.isArray(fightClubStreams) && fightClubStreams.length > 0) streams = fightClubStreams;
-                        }
-                    }
-                } catch (_) {}
-            }
+            const streams = await targetProvider.getStreams(testMediaId, testType, defaultSeason, defaultEpisode, testConfig);
             const latencyMs = Date.now() - startTime;
             const validStreams = Array.isArray(streams) ? streams : [];
 
