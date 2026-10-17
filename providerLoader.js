@@ -878,7 +878,7 @@ class ProviderLoader {
                 } else if (isIndianScraper) {
                     testMediaId = '872906';
                     testType = 'movie';
-                } else if (/moviesmod/i.test(pId)) {
+                } else if (/moviesmod|vegamovies/i.test(pId)) {
                     testMediaId = '872585';
                     testType = 'movie';
                 }

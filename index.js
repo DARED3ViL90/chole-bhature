@@ -2639,7 +2639,7 @@ async function getMediaMetadata(imdbId, type) {
     // 3. Cinemeta Fallback (with automatic title-to-TMDB resolution)
     try {
         const cinemetaType = (type === 'tv' ? 'series' : type);
-        const cRes = await axios.get(`https://v3-cinemeta.strem.io/meta/${cinemetaType}/${rawId}.json`, { timeout: 3500 });
+        const cRes = await axios.get(`https://v3-cinemeta.strem.io/meta/${cinemetaType}/${rawId}.json`, { timeout: 3500, httpsAgent: dohHttpsAgent });
         if (cRes.data && cRes.data.meta) {
             title = cRes.data.meta.name;
             originalTitle = cRes.data.meta.name;
@@ -2697,14 +2697,32 @@ app.get('/debrid/:service/:apiKey/:hash', async (req, res) => {
                 headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/x-www-form-urlencoded' }
             });
             
-            // 3. Get Info and grab the first download link
+            // 3. Get Info and grab the best video download link (largest file)
             const infoRes = await axios.get(`https://api.real-debrid.com/rest/1.0/torrents/info/${torrentId}`, {
                 headers: { 'Authorization': `Bearer ${apiKey}` }
             });
             
             if (infoRes.data && infoRes.data.links && infoRes.data.links.length > 0) {
+                let chosenLink = infoRes.data.links[0];
+                if (Array.isArray(infoRes.data.files) && infoRes.data.files.length > 0) {
+                    const selectedFiles = infoRes.data.files.filter(f => f.selected === 1);
+                    if (selectedFiles.length > 0) {
+                        let largestFile = selectedFiles[0];
+                        let largestIndex = 0;
+                        selectedFiles.forEach((f, idx) => {
+                            if ((f.bytes || 0) > (largestFile.bytes || 0)) {
+                                largestFile = f;
+                                largestIndex = idx;
+                            }
+                        });
+                        if (infoRes.data.links[largestIndex]) {
+                            chosenLink = infoRes.data.links[largestIndex];
+                        }
+                    }
+                }
+
                 // 4. Unrestrict link
-                const unrestrictRes = await axios.post('https://api.real-debrid.com/rest/1.0/unrestrict/link', `link=${infoRes.data.links[0]}`, {
+                const unrestrictRes = await axios.post('https://api.real-debrid.com/rest/1.0/unrestrict/link', `link=${chosenLink}`, {
                     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/x-www-form-urlencoded' }
                 });
                 
@@ -2725,8 +2743,13 @@ app.get('/debrid/:service/:apiKey/:hash', async (req, res) => {
                 const links = statusRes.data?.data?.magnets?.[0]?.links;
                 
                 if (links && links.length > 0) {
+                    let chosenLink = links[0]?.link;
+                    if (links.length > 1) {
+                        const sortedLinks = [...links].sort((a, b) => (b.size || 0) - (a.size || 0));
+                        chosenLink = sortedLinks[0]?.link || links[0]?.link;
+                    }
                     // 3. Unrestrict
-                    const unrestrictRes = await axios.get(`https://api.alldebrid.com/v4/link/unlock?agent=nuvio&apikey=${apiKey}&link=${links[0].link}`);
+                    const unrestrictRes = await axios.get(`https://api.alldebrid.com/v4/link/unlock?agent=nuvio&apikey=${apiKey}&link=${chosenLink}`);
                     if (unrestrictRes.data && unrestrictRes.data.data && unrestrictRes.data.data.link) {
                         return res.redirect(302, unrestrictRes.data.data.link);
                     }
