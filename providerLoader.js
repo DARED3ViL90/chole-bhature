@@ -342,7 +342,7 @@ class ProviderLoader {
         const isLocal = manifestUrl === 'local' || manifestUrl.startsWith('local');
         if (this.providerCache.has(manifestUrl)) {
             const cached = this.providerCache.get(manifestUrl);
-            const ttl = isLocal ? 3000 : 3600000;
+            const ttl = 3600000; // 1 hour memory cache for loaded provider modules
             if (Date.now() - cached.timestamp < ttl && Array.isArray(cached.providers) && cached.providers.length > 0) {
                 return cached.providers;
             }

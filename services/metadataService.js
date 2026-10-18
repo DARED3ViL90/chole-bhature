@@ -10,6 +10,7 @@ const TMDB_API_KEYS = [
 ];
 
 const tmdbDomains = ['https://api.tmdb.org', 'https://api.themoviedb.org'];
+const metadataMemoryCache = new Map();
 
 /**
  * Resolves media metadata (TMDB ID, title, original title, and year)
@@ -18,6 +19,12 @@ const tmdbDomains = ['https://api.tmdb.org', 'https://api.themoviedb.org'];
 async function getMediaMetadata(imdbId, type) {
     if (!imdbId) return { tmdbId: null, title: null, originalTitle: null, year: null };
     const rawId = imdbId.split(':')[0];
+    const cacheKey = `${type || 'movie'}:${rawId}`;
+    const cached = metadataMemoryCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < 24 * 60 * 60 * 1000) {
+        return cached.data;
+    }
+
     let tmdbId = null;
     let title = null;
     let originalTitle = null;
@@ -36,7 +43,7 @@ async function getMediaMetadata(imdbId, type) {
             for (const key of TMDB_API_KEYS) {
                 try {
                     const res = await axios.get(`${domain}/3/${tmdbType}/${tmdbId}?api_key=${key}`, {
-                        timeout: 5000,
+                        timeout: 2500,
                         httpsAgent: dohHttpsAgent,
                         headers: { 'Accept': 'application/json' }
                     });
@@ -45,7 +52,9 @@ async function getMediaMetadata(imdbId, type) {
                         originalTitle = res.data.original_title || res.data.original_name;
                         const dateStr = res.data.release_date || res.data.first_air_date;
                         year = dateStr ? dateStr.split('-')[0] : null;
-                        return { tmdbId, title, originalTitle, year };
+                        const result = { tmdbId, title, originalTitle, year };
+                        metadataMemoryCache.set(cacheKey, { timestamp: Date.now(), data: result });
+                        return result;
                     }
                 } catch (err) {}
             }
@@ -58,26 +67,30 @@ async function getMediaMetadata(imdbId, type) {
             for (const key of TMDB_API_KEYS) {
                 try {
                     const res = await axios.get(`${domain}/3/find/${rawId}?api_key=${key}&external_source=imdb_id`, {
-                        timeout: 5000,
+                        timeout: 2500,
                         httpsAgent: dohHttpsAgent,
                         headers: { 'Accept': 'application/json' }
                     });
                     if (type === 'movie' && res.data && res.data.movie_results && res.data.movie_results.length > 0) {
                         const m = res.data.movie_results[0];
-                        return {
+                        const result = {
                             tmdbId: m.id.toString(),
                             title: m.title,
                             originalTitle: m.original_title,
                             year: m.release_date ? m.release_date.split('-')[0] : null
                         };
+                        metadataMemoryCache.set(cacheKey, { timestamp: Date.now(), data: result });
+                        return result;
                     } else if ((type === 'series' || type === 'tv') && res.data && res.data.tv_results && res.data.tv_results.length > 0) {
                         const t = res.data.tv_results[0];
-                        return {
+                        const result = {
                             tmdbId: t.id.toString(),
                             title: t.name,
                             originalTitle: t.original_name,
                             year: t.first_air_date ? t.first_air_date.split('-')[0] : null
                         };
+                        metadataMemoryCache.set(cacheKey, { timestamp: Date.now(), data: result });
+                        return result;
                     }
                 } catch (err) {}
             }
@@ -87,7 +100,7 @@ async function getMediaMetadata(imdbId, type) {
     // 3. Cinemeta Fallback (with automatic title-to-TMDB resolution)
     try {
         const cinemetaType = (type === 'tv' ? 'series' : type);
-        const cRes = await axios.get(`https://v3-cinemeta.strem.io/meta/${cinemetaType}/${rawId}.json`, { timeout: 3500, httpsAgent: dohHttpsAgent });
+        const cRes = await axios.get(`https://v3-cinemeta.strem.io/meta/${cinemetaType}/${rawId}.json`, { timeout: 2500, httpsAgent: dohHttpsAgent });
         if (cRes.data && cRes.data.meta) {
             title = cRes.data.meta.name;
             originalTitle = cRes.data.meta.name;
@@ -100,7 +113,7 @@ async function getMediaMetadata(imdbId, type) {
                     for (const key of TMDB_API_KEYS) {
                         try {
                             const searchUrl = `${domain}/3/search/${searchType}?api_key=${key}&query=${encodeURIComponent(title)}${year ? `&first_air_date_year=${year}&year=${year}` : ''}`;
-                            const sRes = await axios.get(searchUrl, { timeout: 3500, httpsAgent: dohHttpsAgent });
+                            const sRes = await axios.get(searchUrl, { timeout: 2500, httpsAgent: dohHttpsAgent });
                             if (sRes.data && sRes.data.results && sRes.data.results.length > 0) {
                                 tmdbId = sRes.data.results[0].id.toString();
                                 break;
@@ -111,16 +124,22 @@ async function getMediaMetadata(imdbId, type) {
                 }
             }
 
-            return {
+            const result = {
                 tmdbId: tmdbId || null,
                 title,
                 originalTitle,
                 year
             };
+            metadataMemoryCache.set(cacheKey, { timestamp: Date.now(), data: result });
+            return result;
         }
     } catch (e) {}
 
-    return { tmdbId, title, originalTitle, year };
+    const result = { tmdbId, title, originalTitle, year };
+    if (tmdbId || title) {
+        metadataMemoryCache.set(cacheKey, { timestamp: Date.now(), data: result });
+    }
+    return result;
 }
 
 async function getTmdbId(imdbId, type) {

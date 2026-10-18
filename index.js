@@ -2662,15 +2662,17 @@ function createAddon(config) {
                 }
             }
 
-            let allProviders = [];
-            for (const url of manifestUrls) {
-                try {
-                    const providers = await providerLoader.loadProviders(url);
-                    allProviders = allProviders.concat(providers);
-                } catch (e) {
-                    console.error(`[ProviderLoader] Failed to load from ${url}:`, e.message);
-                }
-            }
+            const providerBatches = await Promise.all(
+                manifestUrls.map(async (url) => {
+                    try {
+                        return await providerLoader.loadProviders(url);
+                    } catch (e) {
+                        console.error(`[ProviderLoader] Failed to load from ${url}:`, e.message);
+                        return [];
+                    }
+                })
+            );
+            let allProviders = providerBatches.flat();
 
             // Deduplicate providers by ID/Name across multiple repositories
             const seenProviderKeys = new Set();
@@ -2731,11 +2733,11 @@ function createAddon(config) {
             // We leave ~8s buffer for speed-testing after scraping completes.
             const isVercel = typeof process !== 'undefined' && Boolean(process.env.VERCEL);
             const PROVIDER_TIMEOUT_MS = isVercel 
-                ? (isEcoMode ? 4000 : 5500)   // Responsive: 5.5s so scrapers finish quickly without hanging
-                : (isEcoMode ? 5000 : 6500); // Render/local: 6.5s
+                ? (isEcoMode ? 4000 : 5500)   // 5.5s allows multi-step scrapers (MoviesDrive, 4KHDHub) to finish
+                : (isEcoMode ? 4500 : 5800); // 5.8s on desktop/server
             const SCRAPE_DEADLINE_MS = isVercel 
                 ? (isEcoMode ? 4500 : 6000) 
-                : (isEcoMode ? 5500 : 7000);
+                : (isEcoMode ? 5000 : 6200);
 
             const tgScrapePromise = (async () => {
                 if (Boolean(config.enableTelegram) && (!config.disabled || (!config.disabled.includes('Telegram') && !config.disabled.includes('Telegram (PencariMovie)')))) {
@@ -2844,8 +2846,20 @@ function createAddon(config) {
 
             const scrapeTimeoutPromise = new Promise(resolve => setTimeout(resolve, SCRAPE_DEADLINE_MS));
             
+            // Fast early exit: only trigger if an abundant volume of streams (>= 45) is collected
+            const earlyCheckPromise = new Promise(resolve => {
+                const interval = setInterval(() => {
+                    if (allStreams.length >= 45 && (Date.now() - scrapeStartTime) >= 4200) {
+                        clearInterval(interval);
+                        resolve();
+                    }
+                }, 200);
+                setTimeout(() => clearInterval(interval), SCRAPE_DEADLINE_MS);
+            });
+
             await Promise.race([
                 Promise.all([tgScrapePromise, ...results]),
+                earlyCheckPromise,
                 scrapeTimeoutPromise
             ]);
             const scrapeDurationMs = Date.now() - scrapeStartTime;
@@ -2857,7 +2871,7 @@ function createAddon(config) {
             const isUnreleased = Boolean(type === 'movie' && targetYear && targetYear > currentYear);
 
             const sortedAndTaggedStreams = await sortAndTagStreams(allStreams, {
-                maxTestDuration: Math.min(3000, Math.max(1500, 9500 - scrapeDurationMs)), // Fast speed testing: max 3s probe duration
+                maxTestDuration: Math.min(1000, Math.max(500, 7200 - scrapeDurationMs)), // Fast speed testing: max 1.0s probe duration
                 target: {
                     title: mediaMeta?.title || '',
                     originalTitle: mediaMeta?.originalTitle || '',

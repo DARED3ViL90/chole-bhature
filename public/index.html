@@ -3184,6 +3184,163 @@
         body { top: 0 !important; margin-top: 0 !important; position: static !important; }
         html { top: 0 !important; margin-top: 0 !important; position: static !important; }
 
+        /* ===== STREAM CARD PRESENTATION STUDIO (REDESIGNED) ===== */
+        .studio-pulse-dot {
+            display: inline-block;
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #10b981;
+            box-shadow: 0 0 10px #10b981;
+            animation: studioPulse 1.8s infinite cubic-bezier(0.4, 0, 0.6, 1);
+            margin-right: 4px;
+        }
+
+        @keyframes studioPulse {
+            0%, 100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+            50% {
+                opacity: 0.4;
+                transform: scale(1.35);
+            }
+        }
+
+        .studio-preset-bar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            overflow-x: auto;
+            padding: 4px 2px 10px 2px;
+            scrollbar-width: none;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .studio-preset-bar::-webkit-scrollbar {
+            display: none;
+        }
+
+        .studio-preset-chip {
+            background: rgba(var(--overlay-base), 0.05);
+            border: 1px solid rgba(var(--overlay-base), 0.12);
+            color: var(--text-secondary);
+            border-radius: var(--radius-pill);
+            padding: 5px 12px;
+            font-size: 11.5px;
+            font-weight: 600;
+            white-space: nowrap;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .studio-preset-chip:hover {
+            background: rgba(139, 92, 246, 0.15);
+            border-color: rgba(139, 92, 246, 0.4);
+            color: #ffffff;
+            transform: translateY(-1px);
+        }
+
+        .studio-preset-chip.active {
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.28) 0%, rgba(56, 189, 248, 0.22) 100%);
+            border-color: rgba(139, 92, 246, 0.6);
+            color: #ffffff;
+            box-shadow: 0 4px 16px rgba(139, 92, 246, 0.25);
+        }
+
+        .studio-preview-card-wrap {
+            position: relative;
+            background: radial-gradient(circle at 90% 10%, rgba(139, 92, 246, 0.12) 0%, transparent 60%),
+                        radial-gradient(circle at 10% 90%, rgba(56, 189, 248, 0.08) 0%, transparent 50%),
+                        var(--bg-input);
+            border: 1px solid rgba(139, 92, 246, 0.35);
+            border-radius: 16px;
+            padding: 16px;
+            box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.6), 0 0 24px rgba(139, 92, 246, 0.12);
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .studio-preview-card-wrap:hover {
+            border-color: rgba(139, 92, 246, 0.55);
+            box-shadow: 0 16px 40px -8px rgba(0, 0, 0, 0.7), 0 0 32px rgba(139, 92, 246, 0.2);
+        }
+
+        .studio-stream-item {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            font-size: 12.5px;
+            line-height: 1.45;
+        }
+
+        .studio-header-strip {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            flex-wrap: wrap;
+            border-bottom: 1px solid rgba(var(--overlay-base), 0.08);
+            padding-bottom: 8px;
+        }
+
+        .studio-raw-box {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            background: rgba(0, 0, 0, 0.35);
+            border: 1px solid rgba(var(--overlay-base), 0.08);
+            border-radius: 8px;
+            padding: 6px 10px;
+            font-size: 11px;
+            line-height: 1.4;
+            color: var(--text-muted);
+            word-break: break-all;
+            display: flex;
+            align-items: flex-start;
+            gap: 6px;
+        }
+
+        .studio-raw-icon {
+            flex-shrink: 0;
+            opacity: 0.8;
+            margin-top: 1px;
+        }
+
+        .studio-action-pill {
+            background: rgba(var(--overlay-base), 0.06);
+            border: 1px solid rgba(var(--overlay-base), 0.12);
+            color: var(--text-secondary);
+            border-radius: var(--radius-pill);
+            padding: 4px 10px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            transition: all 0.2s ease;
+        }
+
+        .studio-action-pill:hover {
+            background: rgba(139, 92, 246, 0.2);
+            border-color: rgba(139, 92, 246, 0.4);
+            color: #ffffff;
+            transform: translateY(-1px);
+        }
+
+        .studio-meta-chip {
+            background: rgba(var(--overlay-base), 0.04);
+            padding: 3px 8px;
+            border-radius: 6px;
+            border: 1px solid rgba(var(--overlay-base), 0.08);
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--text-muted);
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
     </style>
 </head>
 
@@ -3878,7 +4035,7 @@
                             <label class="filter-capsule">
                                 <span class="filter-capsule-text">🧲 Seeder Badges</span>
                                 <div class="switch-toggle">
-                                    <input type="checkbox" id="showSeeders" checked onchange="onSettingChanged()">
+                                    <input type="checkbox" id="showSeeders" checked onchange="onSettingChanged(); if (typeof updateCardPreview === 'function') updateCardPreview();">
                                     <span class="switch-slider"></span>
                                 </div>
                             </label>
@@ -4123,18 +4280,19 @@
                 <div class="section-label-bar">
                     <span class="section-label">🎨 Stream Card Presentation Studio</span>
                     <span class="tag-pill-badge"
-                        style="background: rgba(139, 92, 246, 0.15); border-color: rgba(139, 92, 246, 0.35); color: var(--text-purple);">✨
-                        AI Scene Parser</span>
+                        style="background: rgba(139, 92, 246, 0.15); border-color: rgba(139, 92, 246, 0.35); color: var(--text-purple);">
+                        <span class="studio-pulse-dot"></span>✨ AI Scene Parser
+                    </span>
                 </div>
                 <div class="section-card">
                     <!-- Master Ultra-Clean Formatted Cards Toggle -->
                     <div class="setting-item-row" id="section-clean-cards-master"
-                        style="padding-bottom: 4px; border-bottom: none;">
+                        style="padding-bottom: 6px; border-bottom: none;">
                         <div class="setting-text-block">
                             <div class="setting-headline">
                                 ✨ Ultra-Clean Formatted Cards
                                 <span class="tag-pill-badge"
-                                    style="background: rgba(16, 185, 129, 0.15); border-color: rgba(16, 185, 129, 0.35); color: var(--text-success);">🎯
+                                    style="background: rgba(16, 185, 129, 0.15); border-color: rgba(16, 185, 129, 0.35); color: var(--text-success);">🟣
                                     Stremio / Nuvio</span>
                             </div>
                             <div class="setting-description">Converts messy raw scene filenames into high-contrast,
@@ -4153,7 +4311,7 @@
                         </div>
                     </div>
 
-                    <!-- Sub-Preferences: File Size & Release Group (Auto-Hidden when Clean Cards is Disabled) -->
+                    <!-- Sub-Preferences: File Size & Release Group (Auto-Dimmed when Clean Cards is Disabled) -->
                     <div id="clean-cards-sub-options" style="display: block; transition: all 0.25s ease;">
                         <div class="setting-item-row"
                             style="border-top: 1px solid rgba(var(--overlay-base), 0.08); border-bottom: 1px solid rgba(var(--overlay-base), 0.08); padding-top: 16px; padding-bottom: 16px; margin-top: 12px;">
@@ -4192,19 +4350,36 @@
                         </div>
                     </div>
 
-                    <!-- Interactive Real-Time Live Preview Widget (Always Visible) -->
-                    <div style="margin-top: 14px;">
+                    <!-- Interactive Real-Time Live Preview Widget -->
+                    <div style="margin-top: 16px;">
                         <div
-                            style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-                            <span
-                                style="font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Live
-                                Card Preview</span>
-                            <span
-                                style="font-size: 11px; color: #a78bfa; background: rgba(139, 92, 246, 0.12); padding: 2px 8px; border-radius: 9999px; border: 1px solid rgba(139, 92, 246, 0.25);">Real-Time
-                                Render</span>
+                            style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span
+                                    style="font-size: 12px; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.6px;">LIVE
+                                    CARD PREVIEW</span>
+                                <span class="tag-pill-badge"
+                                    style="font-size: 10.5px; color: #38bdf8; background: rgba(56, 189, 248, 0.12); border-color: rgba(56, 189, 248, 0.28);">
+                                    <span class="studio-pulse-dot" style="background: #38bdf8; box-shadow: 0 0 8px #38bdf8;"></span>Live Preview
+                                </span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 6px;">
+                                <button type="button" class="studio-action-pill" onclick="cycleStudioPreset();" title="Cycle through sample presets">
+                                    <span>🔄 Shuffle Sample</span>
+                                </button>
+                                <button type="button" class="studio-action-pill" onclick="copyCardPreviewText();" title="Copy card preview text to clipboard">
+                                    <span>📋 Copy Card</span>
+                                </button>
+                                <span
+                                    style="font-size: 11px; font-weight: 700; color: #a78bfa; background: rgba(139, 92, 246, 0.12); padding: 3px 10px; border-radius: 9999px; border: 1px solid rgba(139, 92, 246, 0.25);">Real-Time
+                                    Render</span>
+                            </div>
                         </div>
-                        <div id="live-card-preview"
-                            style="background: var(--bg-input); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 8px;">
+
+                        <!-- Sample Preset Selector Chips -->
+                        <div class="studio-preset-bar" id="studio-presets-container"></div>
+
+                        <div id="live-card-preview" class="studio-preview-card-wrap">
                             <!-- Dynamically generated by JS -->
                         </div>
                     </div>
@@ -8435,28 +8610,174 @@
             } catch (e) { }
         }
 
+        // ===== STREAM CARD PRESENTATION STUDIO (REDESIGNED) =====
+        const STUDIO_PRESETS = [
+            {
+                id: 'movie-4k',
+                name: '🎬 4K Remux (Oppenheimer)',
+                headerLatency: '🟢 FAST (142ms)',
+                headerProvider: 'Torrentio',
+                headerTags: '4K UHD • DV • Atmos',
+                title: '🎬 Oppenheimer (2023)',
+                codecTags: ['4K UHD', 'REMUX', 'HEVC', '10-bit'],
+                raw: 'Oppenheimer.2023.2160p.UHD.BluRay.x265.10bit.TrueHD.7.1.Atmos.DV.HDR10+.REMUX-FraMeSToR.mkv',
+                hdrBadges: ['Dolby Vision Profile 8', 'HDR10+', 'Dolby Atmos TrueHD 7.1'],
+                audioLangs: ['🇮🇳 Hindi Dub', '🇬🇧 English', '🌐 Multi-Audio'],
+                fileSize: '48.2 GB',
+                seeders: '🟢 145 Seeders',
+                releaseGroup: 'FraMeSToR',
+                provider: 'Torrentio',
+                accentColor: '#38bdf8'
+            },
+            {
+                id: 'tv-show',
+                name: '📺 TV Episode (Stranger Things)',
+                headerLatency: '🟢 FAST (95ms)',
+                headerProvider: 'MediaFusion',
+                headerTags: '1080p FHD • DDP 5.1',
+                title: '📺 Stranger Things (S04E09) The Piggyback',
+                codecTags: ['1080p FHD', 'WEB-DL', 'H.264', '8-bit'],
+                raw: 'Stranger.Things.S04E09.The.Piggyback.1080p.NF.WEB-DL.DDP5.1.Atmos.H.264-FLUX.mkv',
+                hdrBadges: ['HDR10', 'Dolby Digital Plus 5.1 Atmos'],
+                audioLangs: ['🇮🇳 Hindi Dub', '🇬🇧 English [Original]', '🇯🇵 Japanese Dub'],
+                fileSize: '4.6 GB',
+                seeders: '🟢 312 Seeders',
+                releaseGroup: 'FLUX',
+                provider: 'MediaFusion',
+                accentColor: '#c084fc'
+            },
+            {
+                id: 'anime-subdub',
+                name: '🌸 Anime (Demon Slayer)',
+                headerLatency: '⚡ INSTANT (0ms)',
+                headerProvider: 'Torbox',
+                headerTags: '1080p • Dual-Audio • FLAC',
+                title: '🌸 Demon Slayer: Kimetsu no Yaiba (S04E01)',
+                codecTags: ['1080p FHD', 'WEB-DL', 'HEVC', '10-bit'],
+                raw: '[SubsPlease] Kimetsu no Yaiba - Hashira Geiko-hen - 01 (1080p) [x265 10bit] [Dual-Audio Multi-Sub].mkv',
+                hdrBadges: ['10-bit Color', 'FLAC 2.0 Lossless'],
+                audioLangs: ['🇯🇵 Japanese [Original]', '🇮🇳 Hindi Dub', '🇬🇧 English Dub'],
+                fileSize: '1.4 GB',
+                seeders: '⚡ Torbox Debrid Cached',
+                releaseGroup: 'SubsPlease',
+                provider: 'Torbox',
+                accentColor: '#f43f5e'
+            },
+            {
+                id: 'debrid-dune',
+                name: '⚡ RealDebrid (Dune: Part Two)',
+                headerLatency: '⚡ INSTANT (14ms)',
+                headerProvider: 'Comet',
+                headerTags: '4K UHD • DV • Instant Play',
+                title: '🎬 Dune: Part Two (2024)',
+                codecTags: ['4K UHD', 'WEB-DL', 'HEVC', 'Dolby Vision'],
+                raw: 'Dune.Part.Two.2024.2160p.MA.WEB-DL.DDP5.1.Atmos.DV.HDR.H.265-BYNDR.mkv',
+                hdrBadges: ['Dolby Vision Profile 5', 'Dolby Digital Plus 5.1 Atmos'],
+                audioLangs: ['🇬🇧 English [Original]', '🇮🇳 Hindi Dub', '🇪🇸 Spanish'],
+                fileSize: '22.8 GB',
+                seeders: '⚡ RealDebrid Instant Play',
+                releaseGroup: 'BYNDR',
+                provider: 'Comet',
+                accentColor: '#10b981'
+            }
+        ];
+
+        let activeStudioPresetIndex = 0;
+
+        function setStudioPreset(index) {
+            activeStudioPresetIndex = (index + STUDIO_PRESETS.length) % STUDIO_PRESETS.length;
+            renderStudioPresetChips();
+            updateCardPreview();
+            triggerHaptic('light');
+        }
+
+        function cycleStudioPreset() {
+            setStudioPreset(activeStudioPresetIndex + 1);
+            showToast('🎲 Sample: ' + STUDIO_PRESETS[activeStudioPresetIndex].name);
+        }
+
+        function renderStudioPresetChips() {
+            const container = document.getElementById('studio-presets-container');
+            if (!container) return;
+            container.innerHTML = STUDIO_PRESETS.map((p, idx) => `
+                <button type="button" class="studio-preset-chip ${idx === activeStudioPresetIndex ? 'active' : ''}" onclick="setStudioPreset(${idx});">
+                    ${p.name}
+                </button>
+            `).join('');
+        }
+
+        function copyCardPreviewText() {
+            const preset = STUDIO_PRESETS[activeStudioPresetIndex] || STUDIO_PRESETS[0];
+            const isClean = document.getElementById('cleanTitles')?.checked !== false;
+            let textToCopy = '';
+            if (!isClean) {
+                textToCopy = `${preset.headerLatency} • ${preset.headerProvider} | ${preset.codecTags.join(' • ')}\n${preset.raw}`;
+            } else {
+                const showSize = document.getElementById('showFileSize')?.checked !== false;
+                const showGroup = document.getElementById('showReleaseGroup')?.checked !== false;
+                const showSeeds = document.getElementById('showSeeders')?.checked !== false;
+                const showOrig = document.getElementById('includeOriginalTitle')?.checked !== false;
+
+                const meta = [];
+                if (showSize) meta.push(`📦 ${preset.fileSize}`);
+                if (showSeeds) meta.push(preset.seeders);
+                if (showGroup) meta.push(`🏷️ ${preset.releaseGroup}`);
+                meta.push(`🔗 ${preset.provider}`);
+
+                textToCopy = `${preset.headerLatency} • ${preset.headerProvider} • ${preset.headerTags}\n` +
+                             `${preset.title} [${preset.codecTags.join(' • ')}]\n` +
+                             (showOrig ? `📄 ${preset.raw}\n` : '') +
+                             `💎 ${preset.hdrBadges.join(' • ')}\n` +
+                             `🌐 ${preset.audioLangs.join(' • ')}\n` +
+                             meta.join(' • ');
+            }
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(textToCopy).then(() => {
+                    showToast('📋 <b>Stream Card Copied</b> to clipboard!');
+                    triggerHaptic('success');
+                }).catch(() => {
+                    showToast('📋 Copied!');
+                });
+            } else {
+                showToast('📋 Stream card text ready!');
+            }
+        }
+
         // Live Real-Time Stream Card Preview Renderer
         function updateCardPreview() {
             const subOptions = document.getElementById('clean-cards-sub-options');
             const isClean = document.getElementById('cleanTitles')?.checked !== false;
 
             if (subOptions) {
-                subOptions.style.display = isClean ? 'block' : 'none';
+                subOptions.style.opacity = isClean ? '1' : '0.45';
+                subOptions.style.pointerEvents = isClean ? 'auto' : 'none';
             }
+
+            renderStudioPresetChips();
 
             const container = document.getElementById('live-card-preview');
             if (!container) return;
 
+            const preset = STUDIO_PRESETS[activeStudioPresetIndex] || STUDIO_PRESETS[0];
+
             if (!isClean) {
                 container.innerHTML = `
-                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; border-bottom: 1px solid rgba(var(--overlay-base), 0.08); padding-bottom: 6px;">
-                        <div style="font-size: 12px; font-weight: 700; color: #38bdf8; display: flex; align-items: center; gap: 6px;">
-                            <span>🟢 FAST (142ms) • Torrentio | 2160p • BluRay • REMUX</span>
+                    <div style="border-left: 3px solid #f43f5e; padding-left: 12px; display: flex; flex-direction: column; gap: 8px;">
+                        <div class="studio-header-strip">
+                            <div style="font-size: 12px; font-weight: 700; color: #38bdf8; display: flex; align-items: center; gap: 6px;">
+                                <span>${preset.headerLatency} • ${preset.headerProvider} | ${preset.codecTags.join(' • ')}</span>
+                            </div>
+                            <span style="font-size: 10px; font-weight: 700; color: #f43f5e; background: rgba(244, 63, 94, 0.15); padding: 3px 8px; border-radius: 6px; border: 1px solid rgba(244, 63, 94, 0.35);">
+                                ⚠️ Raw Unformatted Scene Name
+                            </span>
                         </div>
-                        <span style="font-size: 10px; font-weight: 700; color: var(--text-muted); background: rgba(var(--overlay-base), 0.08); padding: 2px 6px; border-radius: 6px; border: 1px solid rgba(var(--overlay-base), 0.12);">Raw Scene Name</span>
-                    </div>
-                    <div style="font-size: 12px; color: var(--text-muted); font-family: monospace; line-height: 1.45; word-break: break-all; margin-top: 4px;">
-                        Oppenheimer.2023.2160p.UHD.BluRay.x265.10bit.TrueHD.7.1.Atmos.DV.HDR10+.REMUX-FraMeSToR.mkv
+                        <div class="studio-raw-box" style="margin-top: 4px; color: #fca5a5;">
+                            <span class="studio-raw-icon">📄</span>
+                            <span style="word-break: break-all;">${preset.raw}</span>
+                        </div>
+                        <div style="font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; margin-top: 2px;">
+                            <span>⚠️ Parsing disabled: Stremio will display the raw release torrent string without audio or quality badges.</span>
+                        </div>
                     </div>
                 `;
                 return;
@@ -8467,39 +8788,38 @@
             const showSeeds = document.getElementById('showSeeders')?.checked !== false;
             const showOrig = document.getElementById('includeOriginalTitle')?.checked !== false;
 
-            const line1Tags = ['4K UHD', 'REMUX', 'HEVC', '10-bit'];
-            const line2Badges = ['Dolby Vision Profile 8', 'HDR10+', 'Dolby Atmos TrueHD 7.1'];
-            const line3Langs = ['🇮🇳 Hindi Dub', '🇬🇧 English', '🌐 Multi-Audio'];
-
             const line4Meta = [];
-            if (showSize) line4Meta.push('📦 48.2 GB');
-            if (showSeeds) line4Meta.push('🟢 145 Seeders');
-            if (showGroup) line4Meta.push('🏷️ FraMeSToR');
-            line4Meta.push('🔗 Torrentio');
+            if (showSize) line4Meta.push(`📦 ${preset.fileSize}`);
+            if (showSeeds) line4Meta.push(preset.seeders);
+            if (showGroup) line4Meta.push(`🏷️ ${preset.releaseGroup}`);
+            line4Meta.push(`🔗 ${preset.provider}`);
 
             container.innerHTML = `
-                <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; border-bottom: 1px solid rgba(var(--overlay-base), 0.08); padding-bottom: 6px;">
-                    <div style="font-size: 12px; font-weight: 700; color: #4ade80; display: flex; align-items: center; gap: 6px;">
-                        <span>🟢 FAST (142ms) • Torrentio • 4K UHD • DV • Atmos</span>
+                <div style="border-left: 3px solid ${preset.accentColor}; padding-left: 12px; display: flex; flex-direction: column; gap: 8px;">
+                    <div class="studio-header-strip">
+                        <div style="font-size: 12.5px; font-weight: 700; color: #4ade80; display: flex; align-items: center; gap: 6px;">
+                            <span>${preset.headerLatency} • ${preset.headerProvider} • ${preset.headerTags}</span>
+                        </div>
+                        <span style="font-size: 10px; font-weight: 700; color: var(--text-purple); background: rgba(139, 92, 246, 0.2); padding: 3px 8px; border-radius: 6px; border: 1px solid rgba(139, 92, 246, 0.35); letter-spacing: 0.3px;">Stream Header</span>
                     </div>
-                    <span style="font-size: 10px; font-weight: 700; color: var(--text-purple); background: rgba(139, 92, 246, 0.2); padding: 2px 6px; border-radius: 6px; border: 1px solid rgba(139, 92, 246, 0.35);">Stream Header</span>
-                </div>
-                <div style="display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; line-height: 1.45;">
-                    <div style="font-weight: 700; color: var(--text-primary);">
-                        🎬 Oppenheimer (2023) <span style="color: var(--text-muted); font-weight: 600;">[${line1Tags.join(' • ')}]</span>
-                    </div>
-                    ${showOrig ? `
-                    <div style="color: var(--text-muted); font-size: 11px; font-family: monospace; word-break: break-all; opacity: 0.9;">
-                        📄 Oppenheimer.2023.2160p.UHD.BluRay.x265.10bit.TrueHD.7.1.Atmos.DV.HDR10+.REMUX-FraMeSToR.mkv
-                    </div>` : ''}
-                    <div style="color: #38bdf8; font-size: 12px; font-weight: 600;">
-                        💎 ${line2Badges.join(' • ')}
-                    </div>
-                    <div style="color: #c084fc; font-size: 11.5px; font-weight: 500;">
-                        🌐 ${line3Langs.join(' • ')}
-                    </div>
-                    <div style="color: var(--text-muted); font-size: 11px; margin-top: 2px;">
-                        ${line4Meta.join(' • ')}
+                    <div class="studio-stream-item">
+                        <div style="font-weight: 800; font-size: 13.5px; color: var(--text-primary); letter-spacing: -0.2px;">
+                            ${preset.title} <span style="color: var(--text-muted); font-weight: 600; font-size: 12px;">[${preset.codecTags.join(' • ')}]</span>
+                        </div>
+                        ${showOrig ? `
+                        <div class="studio-raw-box" title="Original Scene Release File">
+                            <span class="studio-raw-icon">📄</span>
+                            <span style="word-break: break-all;">${preset.raw}</span>
+                        </div>` : ''}
+                        <div style="color: #38bdf8; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 6px; text-shadow: 0 0 12px rgba(56, 189, 248, 0.3);">
+                            <span>💎</span> <span>${preset.hdrBadges.join(' • ')}</span>
+                        </div>
+                        <div style="color: #c084fc; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 6px;">
+                            <span>🌐</span> <span>${preset.audioLangs.join(' • ')}</span>
+                        </div>
+                        <div style="color: var(--text-muted); font-size: 11.5px; font-weight: 500; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px;">
+                            ${line4Meta.map(m => `<span class="studio-meta-chip">${m}</span>`).join('')}
+                        </div>
                     </div>
                 </div>
             `;

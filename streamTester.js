@@ -1181,7 +1181,8 @@ async function sortAndTagStreams(streams, config = {}, providerAnalytics) {
         return results;
     }
 
-    const testingPromise = mapConcurrent(uniqueStreams, 12, async (stream) => {
+    // Run tests concurrently with controlled pool of 32 workers for high throughput
+    const testingPromise = mapConcurrent(uniqueStreams, 32, async (stream) => {
         const result = await testStream(stream, showSeeders, config);
         stream._testedResult = result;
         return result;
