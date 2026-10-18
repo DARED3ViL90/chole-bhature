@@ -56,15 +56,20 @@ function formatBytesToSize(bytes) {
  */
 function extractCleanProvider(rawName) {
     if (!rawName) return 'Stream';
-    let clean = String(rawName).split('\n')[0].replace(/[🟢🟡🔴🧲⚡]/g, '').trim();
+    let clean = String(rawName).split('\n')[0].replace(/[🟢🟡🔴🧲⚡🎬💎🌐📦⚙️🔗🏷️📄💬]/g, '').trim();
     // Strip debrid prefixes like "[RD+]" or "[TB+]"
-    clean = clean.replace(/\[\s*(?:rd|ad|tb|pm|p2p)\+?\s*\]/gi, '').trim();
+    clean = clean.replace(/\[\s*(?:rd|ad|tb|pm|p2p|cached|instant)\+?\s*\]/gi, '').trim();
     if (clean.includes('•')) {
         const parts = clean.split('•');
         clean = parts[0].trim();
     }
     if (clean.includes('|')) {
         clean = clean.split('|')[0].trim();
+    }
+    clean = clean.trim();
+    // If string has media title indicators, year, or resolution, it is not a provider name
+    if (/\(\d{4}\)/.test(clean) || /\b(?:19\d{2}|20\d{2})\b/.test(clean) || /\bS\d+E?\d*\b/i.test(clean) || /\b(?:2160p|1080p|720p|480p|4k|uhd|fhd|hd|remux|bluray|web-?dl|hevc|h264|x265)\b/i.test(clean)) {
+        return 'Stream';
     }
     return clean || 'Stream';
 }
@@ -106,8 +111,12 @@ function ingestStream(stream, config = {}) {
     let statsLine = '';
 
     for (const line of titleLines) {
-        // Line containing UI card emojis or size or seeders emoji or indexer
-        if (/^[🎬💎🌐📦🟢🟡🔴🧲⚡⚙️🔗🏷️]/.test(line) || /(?:💾|👤|👥|🌱|⚙️|🌐|\[\s*\d+\s*(?:GB|MB|GiB|MiB)\s*\])/i.test(line)) {
+        if (/^📄\s*(.+)/.test(line)) {
+            const fnMatch = line.match(/^📄\s*(.+)/);
+            if (fnMatch && fnMatch[1] && !candidateFilename) {
+                candidateFilename = fnMatch[1].trim();
+            }
+        } else if (/^[🎬💎🌐📦🟢🟡🔴🧲⚡⚙️🔗🏷️]/.test(line) || /(?:💾|👤|👥|🌱|⚙️|🌐|\[\s*\d+\s*(?:GB|MB|GiB|MiB)\s*\])/i.test(line)) {
             statsLine += ` ${line}`;
         } else if (!candidateFilename && line.length > 5) {
             candidateFilename = line;
@@ -224,13 +233,19 @@ function ingestStream(stream, config = {}) {
 
     // 6. Clean provider label
     const extractedProvider = extractCleanProvider(rawName);
-    const scraperProvider = stream.originalProvider || stream.provider;
+    const scraperProvider = stream._scraperName || stream.originalProvider || stream.provider;
     
-    let originalProvider = scraperProvider || extractedProvider;
-    
-    // Combine scraper name with internal provider name (e.g., AnimeWorld • UpCloud)
-    if (scraperProvider && extractedProvider && extractedProvider !== 'Stream' && scraperProvider !== extractedProvider && !extractedProvider.includes(scraperProvider)) {
-        originalProvider = `${scraperProvider} • ${extractedProvider}`;
+    let originalProvider = 'Stream';
+    if (scraperProvider && scraperProvider !== 'Stream' && !/\(\d{4}\)/.test(scraperProvider)) {
+        originalProvider = scraperProvider;
+        // Combine scraper name with genuine internal provider name (e.g., AnimeWorld • UpCloud)
+        if (extractedProvider && extractedProvider !== 'Stream' && extractedProvider !== scraperProvider && !extractedProvider.includes(scraperProvider) && !scraperProvider.includes(extractedProvider)) {
+            if (extractedProvider.length <= 25 && !/\b(?:2160p|1080p|720p|480p|4k)\b/i.test(extractedProvider)) {
+                originalProvider = `${scraperProvider} • ${extractedProvider}`;
+            }
+        }
+    } else if (extractedProvider && extractedProvider !== 'Stream') {
+        originalProvider = extractedProvider;
     }
 
     let finalProviders = [];

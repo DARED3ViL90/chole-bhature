@@ -9287,6 +9287,7 @@
                 prioritizeHindi: settings.prioritizeHindi,
                 preferredLanguages: settings.preferredLanguages || [],
                 disabled: settings.disabledProviders || [],
+                disabledProviders: settings.disabledProviders || [],
                 scraperOverrides: settings.scraperOverrides || {}
             };
         }
@@ -10956,7 +10957,16 @@
                         p.version = p.version || '1.0.0';
                         p.supportedTypes = p.supportedTypes || ['movie', 'tv'];
                         p.hasSettings = p.hasSettings || false;
-                        allProvidersData.push(p);
+
+                        // Deduplicate: If another repo already added the exact same scraper ID, don't show duplicate card
+                        const key = (p.id || p.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                        const existingIdx = allProvidersData.findIndex(ep => {
+                            const epKey = (ep.id || ep.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                            return epKey === key;
+                        });
+                        if (existingIdx === -1) {
+                            allProvidersData.push(p);
+                        }
                     });
 
                     reposHtml += `
@@ -11009,9 +11019,13 @@
                 if (!settings.disabledProviders || !Array.isArray(settings.disabledProviders)) return false;
                 const nameLow = (p.name || '').toLowerCase().trim();
                 const idLow = (p.id || '').toLowerCase().trim();
+                const cleanName = nameLow.replace(/[^a-z0-9]/g, '');
+                const cleanId = idLow.replace(/[^a-z0-9]/g, '');
                 return settings.disabledProviders.some(d => {
                     const dl = String(d || '').toLowerCase().trim();
-                    return dl === nameLow || (idLow && dl === idLow);
+                    const cleanD = dl.replace(/[^a-z0-9]/g, '');
+                    return dl === nameLow || (idLow && dl === idLow) ||
+                        (cleanD && (cleanD === cleanName || cleanD === cleanId || cleanName.includes(cleanD) || cleanId.includes(cleanD) || cleanD.includes(cleanName) || cleanD.includes(cleanId)));
                 });
             };
 
@@ -11438,14 +11452,23 @@
 
         function toggleProvider(name, isEnabled, id = null) {
             settings.disabledProviders = settings.disabledProviders || [];
-            const targets = [name, id].filter(Boolean).map(t => String(t).toLowerCase().trim());
+            const rawTargets = [name, id].filter(Boolean).map(t => String(t).toLowerCase().trim());
+            const cleanTargets = rawTargets.map(t => t.replace(/[^a-z0-9]/g, '')).filter(Boolean);
             if (isEnabled) {
-                settings.disabledProviders = settings.disabledProviders.filter(p => !targets.includes(String(p).toLowerCase().trim()));
+                settings.disabledProviders = settings.disabledProviders.filter(p => {
+                    const pl = String(p).toLowerCase().trim();
+                    const cleanP = pl.replace(/[^a-z0-9]/g, '');
+                    return !rawTargets.includes(pl) && !(cleanP && cleanTargets.includes(cleanP));
+                });
             } else {
                 [name, id].filter(Boolean).forEach(t => {
                     const tl = String(t).toLowerCase().trim();
+                    const cleanT = tl.replace(/[^a-z0-9]/g, '');
                     if (!settings.disabledProviders.some(p => String(p).toLowerCase().trim() === tl)) {
                         settings.disabledProviders.push(t);
+                    }
+                    if (cleanT && !settings.disabledProviders.some(p => String(p).toLowerCase().trim() === cleanT)) {
+                        settings.disabledProviders.push(cleanT);
                     }
                 });
             }
@@ -11508,8 +11531,12 @@
             settings.disabledProviders = settings.disabledProviders || [];
             [name, id].filter(Boolean).forEach(t => {
                 const tl = String(t).toLowerCase().trim();
+                const cleanT = tl.replace(/[^a-z0-9]/g, '');
                 if (!settings.disabledProviders.some(p => String(p).toLowerCase().trim() === tl)) {
                     settings.disabledProviders.push(t);
+                }
+                if (cleanT && !settings.disabledProviders.some(p => String(p).toLowerCase().trim() === cleanT)) {
+                    settings.disabledProviders.push(cleanT);
                 }
             });
             saveSettingsLocal();

@@ -792,18 +792,25 @@ class ProviderLoader {
                                         const disabledSet = new Set(rawDisabled);
                                         const nameLower = (scraper.name || '').toLowerCase().trim();
                                         const idLower = (scraper.id || '').toLowerCase().trim();
+                                        const cleanName = nameLower.replace(/[^a-z0-9]/g, '');
+                                        const cleanId = idLower.replace(/[^a-z0-9]/g, '');
 
                                         const override = (userConfig.scraperOverrides && (userConfig.scraperOverrides[scraper.name] || userConfig.scraperOverrides[scraper.id])) 
                                             || globalScraperOverrides[scraper.name] 
                                             || globalScraperOverrides[scraper.id] 
                                             || {};
 
-                                        if (
-                                            override.disabled || 
+                                        const isScraperDisabled = Boolean(override.disabled) || 
                                             disabledSet.has(nameLower) || 
                                             disabledSet.has(idLower) ||
-                                            [...disabledSet].some(d => d && (d === nameLower || d === idLower || nameLower.includes(d) || idLower.includes(d)))
-                                        ) {
+                                            [...disabledSet].some(d => {
+                                                if (!d) return false;
+                                                const cleanD = d.replace(/[^a-z0-9]/g, '');
+                                                return d === nameLower || d === idLower || nameLower.includes(d) || idLower.includes(d) ||
+                                                    (cleanD && (cleanD === cleanName || cleanD === cleanId || cleanName.includes(cleanD) || cleanId.includes(cleanD) || cleanD.includes(cleanName) || cleanD.includes(cleanId)));
+                                            });
+
+                                        if (isScraperDisabled) {
                                             return [];
                                         }
                                         activeContext = { 
@@ -812,7 +819,18 @@ class ProviderLoader {
                                             telemetry: userConfig && userConfig._captureTelemetry ? userConfig.telemetryRef : null
                                         };
                                         try {
-                                            return await originalGetStreams(id, type, season, episode, userConfig);
+                                            const rawStreams = await originalGetStreams(id, type, season, episode, userConfig);
+                                            if (!Array.isArray(rawStreams)) return [];
+                                            return rawStreams.map(s => {
+                                                if (!s || typeof s !== 'object') return s;
+                                                return {
+                                                    ...s,
+                                                    provider: s.provider || scraper.id || scraper.name,
+                                                    originalProvider: scraper.name || s.originalProvider || scraper.id,
+                                                    _scraperId: scraper.id,
+                                                    _scraperName: scraper.name
+                                                };
+                                            });
                                         } finally {
                                             activeContext = { config: {}, override: {}, telemetry: null };
                                         }

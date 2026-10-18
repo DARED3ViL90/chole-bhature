@@ -2340,7 +2340,7 @@ function getStreamConfigHash(cfg = {}) {
         const rawDisabled = [
             ...(Array.isArray(cfg.disabled) ? cfg.disabled : []),
             ...(Array.isArray(cfg.disabledProviders) ? cfg.disabledProviders : [])
-        ].map(d => String(d || '').trim().toLowerCase()).filter(Boolean);
+        ].map(d => String(d || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '')).filter(Boolean);
         const disabledSorted = [...new Set(rawDisabled)].sort();
 
         const functional = {
@@ -2671,6 +2671,15 @@ function createAddon(config) {
                     console.error(`[ProviderLoader] Failed to load from ${url}:`, e.message);
                 }
             }
+
+            // Deduplicate providers by ID/Name across multiple repositories
+            const seenProviderKeys = new Set();
+            allProviders = allProviders.filter(p => {
+                const key = (p.id || p.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                if (!key || seenProviderKeys.has(key)) return false;
+                seenProviderKeys.add(key);
+                return true;
+            });
             
             // Filter providers (Robust case-insensitive matching across name and ID)
             const rawDisabled = [
@@ -2683,17 +2692,29 @@ function createAddon(config) {
 
             if (config.provider) {
                 const target = String(config.provider).trim().toLowerCase();
-                allProviders = allProviders.filter(p => 
-                    (p.name && p.name.toLowerCase() === target) || 
-                    (p.id && p.id.toLowerCase() === target)
-                );
+                const targetClean = target.replace(/[^a-z0-9]/g, '');
+                allProviders = allProviders.filter(p => {
+                    const nameLower = (p.name || '').toLowerCase().trim();
+                    const idLower = (p.id || '').toLowerCase().trim();
+                    const cleanName = nameLower.replace(/[^a-z0-9]/g, '');
+                    const cleanId = idLower.replace(/[^a-z0-9]/g, '');
+                    return nameLower === target || idLower === target || 
+                           (targetClean && (cleanName === targetClean || cleanId === targetClean));
+                });
             } else if (disabledSet.size > 0) {
                 allProviders = allProviders.filter(p => {
-                    const nameLower = p.name ? p.name.toLowerCase().trim() : '';
-                    const idLower = p.id ? p.id.toLowerCase().trim() : '';
+                    const nameLower = (p.name || '').toLowerCase().trim();
+                    const idLower = (p.id || '').toLowerCase().trim();
+                    const cleanName = nameLower.replace(/[^a-z0-9]/g, '');
+                    const cleanId = idLower.replace(/[^a-z0-9]/g, '');
                     const isDisabled = disabledSet.has(nameLower) || 
                                        disabledSet.has(idLower) ||
-                                       [...disabledSet].some(d => d && (d === nameLower || d === idLower || nameLower.includes(d) || idLower.includes(d)));
+                                       [...disabledSet].some(d => {
+                                           if (!d) return false;
+                                           const cleanD = d.replace(/[^a-z0-9]/g, '');
+                                           return d === nameLower || d === idLower || nameLower.includes(d) || idLower.includes(d) ||
+                                               (cleanD && (cleanD === cleanName || cleanD === cleanId || cleanName.includes(cleanD) || cleanId.includes(cleanD) || cleanD.includes(cleanName) || cleanD.includes(cleanId)));
+                                       });
                     return !isDisabled;
                 });
             }
@@ -2911,18 +2932,33 @@ function createAddon(config) {
                 list = list.filter(s => {
                     const pLower = (s.provider || '').toLowerCase();
                     const nLower = (s.name || '').toLowerCase();
+                    const origLower = (s.originalProvider || s._scraperName || '').toLowerCase();
+                    const idLower = (s._scraperId || '').toLowerCase();
+                    const tLower = (s.title || '').toLowerCase();
+                    const rawP = ((s._rawStream && s._rawStream.provider) || '').toLowerCase();
                     return ![...disabledSet].some(d => {
                         const cleanD = d.replace(/[^a-z0-9]/g, '');
+                        if (!cleanD) return false;
                         const cleanP = pLower.replace(/[^a-z0-9]/g, '');
                         const cleanN = nLower.replace(/[^a-z0-9]/g, '');
-                        return pLower.includes(d) || nLower.includes(d) || (cleanD && (cleanP.includes(cleanD) || cleanN.includes(cleanD)));
+                        const cleanO = origLower.replace(/[^a-z0-9]/g, '');
+                        const cleanI = idLower.replace(/[^a-z0-9]/g, '');
+                        const cleanT = tLower.replace(/[^a-z0-9]/g, '');
+                        const cleanRawP = rawP.replace(/[^a-z0-9]/g, '');
+                        return pLower.includes(d) || nLower.includes(d) || origLower.includes(d) || idLower.includes(d) || tLower.includes(d) ||
+                            cleanP.includes(cleanD) || cleanD.includes(cleanP) ||
+                            cleanN.includes(cleanD) || cleanD.includes(cleanN) ||
+                            cleanO.includes(cleanD) || cleanD.includes(cleanO) ||
+                            cleanI.includes(cleanD) || cleanD.includes(cleanI) ||
+                            cleanT.includes(cleanD) ||
+                            cleanRawP.includes(cleanD) || cleanD.includes(cleanRawP);
                     });
                 });
             }
             if (config.hideP2P || config.blockP2P || config.disableP2P) {
                 list = list.filter(s => {
                     const isMagnet = (s.url && s.url.startsWith('magnet:')) || Boolean(s.infoHash);
-                    const isP2P = Boolean(s.isP2P || isMagnet || (s.name && s.name.includes('[P2P]')));
+                    const isP2P = Boolean(s.isP2P || isMagnet || (s.name && s.name.includes('[P2P]')) || (s.name && s.name.includes('P2P')));
                     return !isP2P || Boolean(s.isDebridCached);
                 });
             }

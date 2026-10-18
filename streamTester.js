@@ -553,7 +553,10 @@ function getSeederScore(stream) {
 async function testStream(stream, showSeeders = true, config = {}) {
     const startTime = Date.now();
     const originalName = stream.name || 'Stream';
-    const providerName = cleanProviderName(originalName);
+    const scraperProvider = stream._scraperName || stream.originalProvider || stream.provider;
+    const providerName = (scraperProvider && scraperProvider !== 'Stream' && !/\(\d{4}\)/.test(scraperProvider))
+        ? scraperProvider
+        : cleanProviderName(originalName);
 
     const rawSnapshot = stream._rawStream || {
         name: stream.name,
@@ -639,6 +642,7 @@ async function testStream(stream, showSeeders = true, config = {}) {
             isDead: isDead,
             statusCategory: statusCategory,
             originalProvider: providerName,
+            provider: stream.provider || providerName.toLowerCase().replace(/[^a-z0-9]/g, ''),
             _rawStream: rawSnapshot,
             _preparsedMeta: initialMeta
         };
@@ -1236,6 +1240,8 @@ async function sortAndTagStreams(streams, config = {}, providerAnalytics) {
             const textToCheck = [
                 s.originalProvider,
                 s.provider,
+                s._scraperName,
+                s._scraperId,
                 s.name,
                 s.title,
                 raw.provider,
@@ -1243,8 +1249,13 @@ async function sortAndTagStreams(streams, config = {}, providerAnalytics) {
                 raw.title,
                 Array.isArray(s.providers) ? s.providers.join(' ') : ''
             ].filter(Boolean).join(' ').toLowerCase();
+            const cleanText = textToCheck.replace(/[^a-z0-9]/g, '');
 
-            return !rawDisabled.some(d => d && textToCheck.includes(d));
+            return !rawDisabled.some(d => {
+                if (!d) return false;
+                const cleanD = d.replace(/[^a-z0-9]/g, '');
+                return textToCheck.includes(d) || (cleanD && (cleanText.includes(cleanD) || cleanD.includes(cleanText)));
+            });
         });
     }
 
@@ -1299,6 +1310,17 @@ async function sortAndTagStreams(streams, config = {}, providerAnalytics) {
         const debridB = Boolean(b.isDebridCached);
         if (debridA !== debridB) {
             return debridA ? -1 : 1;
+        }
+
+        // 2.5. Playability priority for Nuvio: If user has NO Debrid configured,
+        // rank directly playable HTTP/HLS streams ABOVE raw BitTorrent magnets
+        const hasDebrid = Boolean(config && config.debridApiKey && config.debridProvider && config.debridProvider !== 'none');
+        if (!hasDebrid) {
+            const isRawP2PA = (a.url && a.url.startsWith('magnet:')) || Boolean(a.infoHash) || Boolean(a.isP2P && !a.isDebridCached);
+            const isRawP2PB = (b.url && b.url.startsWith('magnet:')) || Boolean(b.infoHash) || Boolean(b.isP2P && !b.isDebridCached);
+            if (isRawP2PA !== isRawP2PB) {
+                return isRawP2PA ? 1 : -1;
+            }
         }
 
         const rankA = categoryRank[a.statusCategory] || 2;
