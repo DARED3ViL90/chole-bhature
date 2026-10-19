@@ -274,9 +274,10 @@ function formatStreamCard(ingested, options = {}) {
     // Original Stream File Title (if enabled)
     const rawTitleToDisplay = ingested.originalTitle || ingested.rawFilename;
     if (config.includeOriginalTitle !== false && rawTitleToDisplay) {
-        const cleanRaw = String(rawTitleToDisplay).replace(/[🎬💎🌐📦🟢🟡🔴🧲⚡⚙️🔗🏷️]/g, '').trim();
+        const cleanRaw = String(rawTitleToDisplay).replace(/^[🎬💎🌐📦🟢🟡🔴🧲⚡⚙️🔗🏷️📄💬\s]+/g, '').trim();
         const isGeneric = !cleanRaw || cleanRaw.toLowerCase() === 'stream' || cleanRaw.toLowerCase() === 'video';
-        if (!isGeneric) {
+        const isDuplicateOfHeader = resolvedTitle && cleanRaw.toLowerCase() === resolvedTitle.toLowerCase();
+        if (!isGeneric && !isDuplicateOfHeader) {
             cardLines.push(`📄 ${cleanRaw}`);
         }
     }
