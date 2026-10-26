@@ -141,6 +141,17 @@ if (!fs.existsSync(path.join(__dirname, '.secret')) && !process.env.VERCEL && !p
 
 const app = express();
 
+// Global CORS & TV Client Compatibility Headers (Android TV / Nuvio / Stremio)
+app.use((req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
+    res.setHeader('Access-Control-Allow-Headers', '*');
+    if (req.method === 'OPTIONS') {
+        return res.status(204).end();
+    }
+    next();
+});
+
 // Vercel rewrites a request to the serverless function pathname
 // (/api/index.js). Preserve the original route in vercel.json and restore it
 // before Express routes the request, otherwise every endpoint becomes
@@ -368,7 +379,8 @@ app.get('/my-repo/manifest.json', (req, res) => {
 });
 
 app.get('/manifest.json', (req, res, next) => {
-    if (req.query.v || req.query.pwa) {
+    // Only serve PWA webmanifest if explicitly requested with ?pwa=1
+    if (req.query.pwa) {
         res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Cache-Control', 'public, max-age=86400');
