@@ -2858,14 +2858,15 @@ function createAddon(config) {
 
             const scrapeTimeoutPromise = new Promise(resolve => setTimeout(resolve, SCRAPE_DEADLINE_MS));
             
-            // Fast early exit: only trigger if an abundant volume of streams (>= 45) is collected
+            // Fast early exit: return snappy response to Android TV once sufficient streams arrive
             const earlyCheckPromise = new Promise(resolve => {
                 const interval = setInterval(() => {
-                    if (allStreams.length >= 45 && (Date.now() - scrapeStartTime) >= 4200) {
+                    if ((allStreams.length >= 25 && (Date.now() - scrapeStartTime) >= 2500) ||
+                        (allStreams.length >= 15 && (Date.now() - scrapeStartTime) >= 3800)) {
                         clearInterval(interval);
                         resolve();
                     }
-                }, 200);
+                }, 150);
                 setTimeout(() => clearInterval(interval), SCRAPE_DEADLINE_MS);
             });
 
