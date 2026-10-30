@@ -2569,7 +2569,7 @@ function createAddon(config) {
 
     const behaviorHints = {
         configurable: true,
-        configurationRequired: !isConfigured
+        configurationRequired: false
     };
     if (configurationUrl) {
         behaviorHints.configurationURL = configurationUrl;
@@ -2666,7 +2666,7 @@ function createAddon(config) {
             }
             
             if (manifestUrls.length === 0) {
-                manifestUrls = globalServerSettings.installedRepos || [];
+                manifestUrls = (globalServerSettings.installedRepos && globalServerSettings.installedRepos.length > 0) ? [...globalServerSettings.installedRepos] : ['https://raw.githubusercontent.com/SA7ANI/cb-providers/main/manifest.json'];
             }
             if (globalServerSettings.localRepo && globalServerSettings.localRepo.length > 0) {
                 if (!manifestUrls.includes('local')) {
@@ -2858,14 +2858,15 @@ function createAddon(config) {
 
             const scrapeTimeoutPromise = new Promise(resolve => setTimeout(resolve, SCRAPE_DEADLINE_MS));
             
-            // Fast early exit: only trigger if an abundant volume of streams (>= 45) is collected
+            // Fast early exit: return snappy response to Android TV once sufficient streams arrive
             const earlyCheckPromise = new Promise(resolve => {
                 const interval = setInterval(() => {
-                    if (allStreams.length >= 45 && (Date.now() - scrapeStartTime) >= 4200) {
+                    if ((allStreams.length >= 25 && (Date.now() - scrapeStartTime) >= 2500) ||
+                        (allStreams.length >= 15 && (Date.now() - scrapeStartTime) >= 3800)) {
                         clearInterval(interval);
                         resolve();
                     }
-                }, 200);
+                }, 150);
                 setTimeout(() => clearInterval(interval), SCRAPE_DEADLINE_MS);
             });
 
@@ -3008,7 +3009,7 @@ function createAddon(config) {
             
             const frStream = getForceRefreshStream();
             const filteredCached = filterRuntimeStreams(cached.streams);
-            return { streams: frStream ? [frStream, ...filteredCached] : filteredCached };
+            return { streams: (frStream && filteredCached.length > 0) ? [frStream, ...filteredCached] : filteredCached };
         }
 
         // Deduplicate in-flight requests for the exact same stream
@@ -3017,7 +3018,7 @@ function createAddon(config) {
             const inFlightResult = await inFlightStreamFetches.get(cacheKey);
             const frStream = getForceRefreshStream();
             const filteredInFlight = filterRuntimeStreams(inFlightResult);
-            return { streams: frStream ? [frStream, ...filteredInFlight] : filteredInFlight };
+            return { streams: (frStream && filteredInFlight.length > 0) ? [frStream, ...filteredInFlight] : filteredInFlight };
         }
 
         const fetchPromise = fetchAndCacheStreams();
@@ -3025,7 +3026,7 @@ function createAddon(config) {
         try {
             const sortedAndTaggedStreams = await fetchPromise;
             const frStream = getForceRefreshStream();
-            return { streams: frStream ? [frStream, ...sortedAndTaggedStreams] : sortedAndTaggedStreams };
+            return { streams: (frStream && sortedAndTaggedStreams.length > 0) ? [frStream, ...sortedAndTaggedStreams] : sortedAndTaggedStreams };
         } catch (streamErr) {
             console.error(`[Stremio Stream Handler Error] for ${type} ${id}:`, streamErr.stack || streamErr.message);
             return { streams: [] };

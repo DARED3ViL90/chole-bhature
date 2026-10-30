@@ -650,9 +650,13 @@ async function testStream(stream, showSeeders = true, config = {}) {
 
     // Handle external links or YouTube links
     if (stream.externalUrl || stream.ytId) {
-        const labels = formatStreamLabels(stream, 100, true, false, showSeeders, config);
+        if (!stream.url && stream.externalUrl) {
+            stream.url = stream.externalUrl;
+        }
+        const labels = formatStreamLabels(stream, 100, false, false, showSeeders, config);
         return {
             ...stream,
+            url: stream.url,
             name: labels.name,
             title: labels.title, description: labels.description,
             latency: 100,
