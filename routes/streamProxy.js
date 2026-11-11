@@ -112,24 +112,73 @@ async function handleStreamProxy(req, res) {
         try {
             // For HLS playlists (non-HEAD), we buffer text to rewrite child URLs
             const isPlaylistTarget = !isHead && (isM3U8Url || urlToTry.toLowerCase().includes('.m3u8'));
+            const isS3Presigned = urlToTry.includes('X-Amz-Signature') || 
+                                  urlToTry.includes('X-Amz-Algorithm') || 
+                                  urlToTry.includes('cloudflarestorage.com') || 
+                                  urlToTry.includes('r2.dev');
 
-            const remoteRes = await axios({
-                method: isHead ? 'head' : 'get',
-                url: urlToTry,
-                headers: clientHeaders,
-                responseType: isPlaylistTarget ? 'text' : (isHead ? undefined : 'stream'),
-                httpAgent: dohHttpAgent,
-                httpsAgent: dohHttpsAgent,
-                timeout: candidateUrls.length > 1 ? 8000 : 15000,
-                maxRedirects: 5,
-                validateStatus: (status) => status < 400
-            });
+            let remoteRes;
+            let simulatedHeadViaRange = false;
+
+            if (isHead && isS3Presigned) {
+                // S3/R2 presigned URLs reject HEAD with 403 Forbidden because signature method is GET.
+                // Simulate HEAD by probing bytes=0-1 with GET so players receive valid headers & file length.
+                simulatedHeadViaRange = true;
+                remoteRes = await axios({
+                    method: 'get',
+                    url: urlToTry,
+                    headers: { ...clientHeaders, 'Range': 'bytes=0-1' },
+                    responseType: 'stream',
+                    httpAgent: dohHttpAgent,
+                    httpsAgent: dohHttpsAgent,
+                    timeout: candidateUrls.length > 1 ? 8000 : 15000,
+                    maxRedirects: 5,
+                    validateStatus: (status) => status < 400
+                });
+                if (remoteRes.data && typeof remoteRes.data.destroy === 'function') {
+                    remoteRes.data.destroy();
+                }
+            } else {
+                try {
+                    remoteRes = await axios({
+                        method: isHead ? 'head' : 'get',
+                        url: urlToTry,
+                        headers: clientHeaders,
+                        responseType: isPlaylistTarget ? 'text' : (isHead ? undefined : 'stream'),
+                        httpAgent: dohHttpAgent,
+                        httpsAgent: dohHttpsAgent,
+                        timeout: candidateUrls.length > 1 ? 8000 : 15000,
+                        maxRedirects: 5,
+                        validateStatus: (status) => status < 400
+                    });
+                } catch (headErr) {
+                    if (isHead && headErr.response && (headErr.response.status === 403 || headErr.response.status === 405 || headErr.response.status === 501)) {
+                        // Upstream rejected HEAD -> Fallback to GET Range probe
+                        simulatedHeadViaRange = true;
+                        remoteRes = await axios({
+                            method: 'get',
+                            url: urlToTry,
+                            headers: { ...clientHeaders, 'Range': 'bytes=0-1' },
+                            responseType: 'stream',
+                            httpAgent: dohHttpAgent,
+                            httpsAgent: dohHttpsAgent,
+                            timeout: candidateUrls.length > 1 ? 8000 : 15000,
+                            maxRedirects: 5,
+                            validateStatus: (status) => status < 400
+                        });
+                        if (remoteRes.data && typeof remoteRes.data.destroy === 'function') {
+                            remoteRes.data.destroy();
+                        }
+                    } else {
+                        throw headErr;
+                    }
+                }
+            }
 
             if (i > 0) {
                 console.log(`[StreamProxy] Auto-healed stream using mirror ${i}/${candidateUrls.length - 1}: ${urlToTry.substring(0, 60)}...`);
             }
 
-            res.status(remoteRes.status);
             const copyHeaders = [
                 'content-type',
                 'content-length',
@@ -146,6 +195,21 @@ async function handleStreamProxy(req, res) {
 
             if (!res.getHeader('accept-ranges')) {
                 res.setHeader('Accept-Ranges', 'bytes');
+            }
+
+            // If we simulated HEAD with Range 0-1, calculate and return the actual total content-length
+            if (simulatedHeadViaRange) {
+                res.status(200);
+                const cr = remoteRes.headers['content-range'];
+                if (cr && cr.includes('/')) {
+                    const total = cr.split('/')[1].trim();
+                    if (total && total !== '*' && !isNaN(parseInt(total, 10))) {
+                        res.setHeader('Content-Length', total);
+                    }
+                }
+                res.removeHeader('content-range');
+            } else {
+                res.status(remoteRes.status);
             }
 
             // Ensure proper video/HLS Content-Type for players (prevent ExoPlayer UnrecognizedInputFormatException)

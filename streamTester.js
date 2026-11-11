@@ -4,7 +4,7 @@ const { parseTorrentTitle, cleanReleaseNoise } = require('./torrentParser');
 const { ingestStream, normalizeInfoHash, parseSizeToBytes, formatBytesToSize, extractCleanProvider } = require('./streamIngest');
 const { formatStreamCard, formatProviderChain } = require('./streamFormatter');
 
-const TIMEOUT_MS = 800;
+const TIMEOUT_MS = 1200;
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
 // High-speed domain latency memoization to avoid probing identical CDNs 50+ times
@@ -124,6 +124,57 @@ function extractTitleKeywords(title) {
     return norm.split(' ').filter(w => w.length > 0 && !STOP_WORDS.has(w));
 }
 
+function isStreamLikelyAnime(stream, rawStreamText = '', sceneDetails = null) {
+    const text = (rawStreamText || [
+        stream.title || '',
+        stream.name || '',
+        stream.description || '',
+        stream.url || ''
+    ].join(' ')).toLowerCase();
+
+    // 1. Anime scraper/provider origins
+    const addon = (stream.addonName || stream._provider || stream.provider || '').toLowerCase();
+    const animeProviders = [
+        'kurage', 'anizone', 'animeworld', 'anikage', 'animesalt', 
+        'anizen', 'reanime', 'toonstream', 'puretoons', 'topcartoons',
+        'animepahe', 'gogoanime', 'crunchyroll', 'zoro', 'kaido', 'nyaa'
+    ];
+    if (animeProviders.some(p => addon.includes(p))) {
+        return true;
+    }
+
+    // 2. Known Anime / Cartoon release groups (bracketed or scene release groups)
+    const animeGroupsRegex = /\[(?:ToonsHub|Erai-raws|SubsPlease|Judas|HorribleSubs|EMBER|ASW|NanDesuKa|Golumpa|Tsundere|PAS|Coalgirls|Commie|Cleo|Toonworld|Kitsune|AnimeRG|Nep_Blanc|DKB|BlurayDesu|Mini-Anime|Moozzi2|Beatrice-Raws|ReinForce|Ohys-Raws|Leopard-Raws|Zero-Raws|VipAnime|DarkDream|Kira-Fansub|Nekomoe|SweetSub|Anime\s*Time|LostYears)\]/i;
+    if (animeGroupsRegex.test(text)) {
+        return true;
+    }
+
+    if (sceneDetails && sceneDetails.releaseGroup) {
+        const rg = String(sceneDetails.releaseGroup).toLowerCase();
+        const animeRGs = [
+            'toonshub', 'erai-raws', 'subsplease', 'judas', 'horriblesubs',
+            'ember', 'asw', 'nandesuka', 'golumpa', 'tsundere', 'coalgirls',
+            'commie', 'cleo', 'toonworld', 'kitsune', 'animerg', 'moozzi2',
+            'beatrice-raws', 'reinforce', 'ohys-raws', 'leopard-raws', 'lostyears'
+        ];
+        if (animeRGs.includes(rg)) {
+            return true;
+        }
+    }
+
+    // 3. Anime / Animation explicit markers
+    if (/\b(anime|animation|animated|donghua|aweeb|fansub|crunchyroll|funimation|hidive)\b/i.test(text)) {
+        return true;
+    }
+
+    // 4. Japanese romanized titles for specific webtoon/manhwa adaptations (e.g. The Remarried Empress anime)
+    if (/(saikon\s*shounin|saikon\s*shōnin|youkyuu\s*shimasu|再婚承認)/i.test(text)) {
+        return true;
+    }
+
+    return false;
+}
+
 function isStreamMatchingTarget(stream, target) {
     if (!target || !target.title) return true; // Don't block if target metadata is unavailable
 
@@ -139,9 +190,41 @@ function isStreamMatchingTarget(stream, target) {
     
     // Discard placeholder/dummy streams
     if (cleanStreamTitle.toLowerCase().includes('anime title') || (stream.title || '').toLowerCase().includes('anime title')) {
+        stream._fatalMismatch = true;
         return false;
     }
 
+    // A. Format Segregation: Anime/Cartoon vs Live-Action
+    const isTargetLiveAction = !target.isAnimation && !target.isAnime;
+    const isTargetAnime = Boolean(target.isAnimation || target.isAnime);
+    const streamIsAnime = isStreamLikelyAnime(stream, rawStreamText, sceneDetails);
+
+    // If target is Live-Action (e.g. KDrama like The Remarried Empress), strictly PURGE any anime/cartoon stream
+    if (isTargetLiveAction && streamIsAnime) {
+        stream._fatalMismatch = true;
+        return false;
+    }
+
+    // If target is a Korean Drama (originalLanguage === 'ko' and live-action), purge Japanese anime titles/dubs
+    if (isTargetLiveAction && target.originalLanguage === 'ko') {
+        const textLow = rawStreamText.toLowerCase();
+        if (/(saikon|shounin|youkyuu|再婚承認)/i.test(textLow)) {
+            stream._fatalMismatch = true;
+            return false;
+        }
+        if (/\b(japanese|ja|jpn)\b/i.test(textLow) && !/\b(korean|ko|kor|재혼)\b/i.test(textLow) && streamIsAnime) {
+            stream._fatalMismatch = true;
+            return false;
+        }
+    }
+
+    // If target is Anime/Animation, purge live-action adaptation streams
+    if (isTargetAnime && /\b(live[\s\-_.]?action)\b/i.test(rawStreamText)) {
+        stream._fatalMismatch = true;
+        return false;
+    }
+
+    // B. Keyword Matching
     const rawNormalizedStream = normalizeTitleForMatching(rawStreamText);
     const targetKeywords = extractTitleKeywords(target.title);
     const altKeywords = target.originalTitle ? extractTitleKeywords(target.originalTitle) : [];
@@ -171,7 +254,7 @@ function isStreamMatchingTarget(stream, target) {
         return false;
     }
 
-    // 2. Year & Unreleased Movie Validation
+    // C. Year & Unreleased Movie Validation
     if (target.type === 'movie' && target.year) {
         const tYear = parseInt(target.year, 10);
         const yearMatch = rawStreamText.match(/\b(19\d{2}|20\d{2})\b/);
@@ -179,17 +262,19 @@ function isStreamMatchingTarget(stream, target) {
         
         // Strict year drift check (must be within 1 year of target release)
         if (sYear && !isNaN(tYear) && !isNaN(sYear) && Math.abs(tYear - sYear) > 1) {
+            stream._fatalMismatch = true;
             return false;
         }
 
         // Future unreleased movies (scheduled beyond current calendar year) have no digital releases yet
         const currentYear = new Date().getFullYear();
         if (!isNaN(tYear) && tYear > currentYear && target.isUnreleased) {
+            stream._fatalMismatch = true;
             return false;
         }
     }
 
-    // 3. Series / Episode Validation (for TV series)
+    // D. Series / Episode Validation (for TV series)
     if ((target.type === 'series' || target.type === 'tv') && target.season && target.episode) {
         const reqS = parseInt(target.season, 10);
         const reqE = parseInt(target.episode, 10);
@@ -201,6 +286,7 @@ function isStreamMatchingTarget(stream, target) {
                 const sNum = parseInt(epMatch[1], 10);
                 const eNum = parseInt(epMatch[2], 10);
                 if (sNum !== reqS || eNum !== reqE) {
+                    stream._fatalMismatch = true;
                     return false;
                 }
             } else {
@@ -209,6 +295,7 @@ function isStreamMatchingTarget(stream, target) {
                     const startS = parseInt(seasonOnlyMatch[1], 10);
                     const endS = seasonOnlyMatch[2] ? parseInt(seasonOnlyMatch[2], 10) : startS;
                     if (reqS < startS || reqS > endS) {
+                        stream._fatalMismatch = true;
                         return false;
                     }
                 }
@@ -346,6 +433,8 @@ function deduplicateAndMergeStreams(streams, enabled = true) {
         if (!fingerprint) {
             const copy = { 
                 ...stream, 
+                provider: stream.provider || pName || 'Stream',
+                originalProvider: stream.originalProvider || pName || 'Stream',
                 providers: pName ? [pName] : ['Stream'],
                 mirrors: stream.url ? [{ url: stream.url, provider: pName, headers: stream.headers }] : [],
                 mirrorCount: 1
@@ -363,6 +452,12 @@ function deduplicateAndMergeStreams(streams, enabled = true) {
             }
             if (pName && !existing.providers.includes(pName)) {
                 existing.providers.push(pName);
+            }
+            if (!existing.provider) {
+                existing.provider = existing.providers[0];
+            }
+            if (!existing.originalProvider) {
+                existing.originalProvider = existing.providers[0];
             }
 
             // Maintain stacked mirror list for Smart Mirror Stacking & Failover
@@ -401,6 +496,8 @@ function deduplicateAndMergeStreams(streams, enabled = true) {
         } else {
             const copy = { 
                 ...stream, 
+                provider: stream.provider || pName || 'Stream',
+                originalProvider: stream.originalProvider || pName || 'Stream',
                 providers: pName ? [pName] : ['Stream'],
                 mirrors: stream.url ? [{ url: stream.url, provider: pName, headers: stream.headers }] : [],
                 mirrorCount: 1
@@ -427,7 +524,10 @@ function parseStreamMetadata(stream) {
 }
 
 function formatStreamLabels(stream, latency = 150, isP2P = false, isDead = false, showSeeders = true, config = {}) {
-    const target = stream._rawStream || stream;
+    const target = {
+        ...(stream._rawStream || {}),
+        ...stream
+    };
     const ingested = ingestStream(target, config);
     if (!ingested) return { name: stream.name || 'Stream', title: stream.title || '' };
     if (stream._preparsedMeta) {
@@ -487,15 +587,51 @@ function getQualityScore(stream) {
     return score;
 }
 
+const INTERNATIONAL_LANGUAGE_ALIASES = {
+    'french': /\b(french|francais|truefrench|vff|vfq|vf|vostfr|fr)\b/i,
+    'spanish': /\b(spanish|espanol|español|castellano|castilian|latino|esp|es)\b/i,
+    'german': /\b(german|deutsch|ger|deu|de)\b/i,
+    'italian': /\b(italian|italiano|ita|it)\b/i,
+    'portuguese': /\b(portuguese|portugues|português|pt-br|ptbr|pt-pt|por|pt)\b/i,
+    'japanese': /\b(japanese|nihongo|jap|jpn|jp)\b/i,
+    'korean': /\b(korean|hangul|kor|ko)\b/i,
+    'chinese': /\b(chinese|mandarin|cantonese|chi|zho|zh|chn)\b/i,
+    'russian': /\b(russian|rus|ru)\b/i,
+    'dutch': /\b(dutch|nederlands|dut|nld|nl)\b/i,
+    'polish': /\b(polish|polski|pol|pl)\b/i,
+    'english': /\b(english|eng|en)\b/i,
+    'arabic': /\b(arabic|ara|ar)\b/i,
+    'turkish': /\b(turkish|tur|tr)\b/i,
+    'hindi': /\b(hindi|hin|hi)\b/i,
+    'tamil': /\b(tamil|tam|ta)\b/i,
+    'telugu': /\b(telugu|tel|te)\b/i,
+    'malayalam': /\b(malayalam|mal|ml)\b/i,
+    'kannada': /\b(kannada|kan|kn)\b/i,
+    'bengali': /\b(bengali|bangla|ben|bn)\b/i,
+    'punjabi': /\b(punjabi|panjabi|pun|pa)\b/i,
+    'marathi': /\b(marathi|mar|mr)\b/i,
+    'gujarati': /\b(gujarati|guj|gu)\b/i,
+    'vietnamese': /\b(vietnamese|viet|vie|vn)\b/i,
+    'thai': /\b(thai|tha|th)\b/i,
+    'indonesian': /\b(indonesian|indo|ind|id)\b/i
+};
+
 function getAudioScore(stream, preferredLanguages = [], prioritizeHindi = false) {
     if (!stream) return 0;
     const meta = parseStreamMetadata(stream);
     const langs = (meta.languages || []).map(l => l.toLowerCase());
     const text = [stream.name || '', stream.title || '', stream.description || ''].join(' ').toLowerCase();
 
-    const list = Array.isArray(preferredLanguages) && preferredLanguages.length > 0
-        ? preferredLanguages.map(l => l.toLowerCase())
-        : (prioritizeHindi ? ['hindi', 'dual-audio'] : []);
+    let list = [];
+    if (Array.isArray(preferredLanguages) && preferredLanguages.length > 0) {
+        list = preferredLanguages.map(l => l.toLowerCase());
+    } else if (Array.isArray(prioritizeHindi) && prioritizeHindi.length > 0) {
+        list = prioritizeHindi.map(l => l.toLowerCase());
+    } else if (typeof prioritizeHindi === 'string' && prioritizeHindi) {
+        list = [prioritizeHindi.toLowerCase(), 'dual-audio', 'multi-audio'];
+    } else if (prioritizeHindi === true) {
+        list = ['hindi', 'dual-audio', 'multi-audio'];
+    }
 
     if (list.length === 0) return 0;
 
@@ -512,23 +648,8 @@ function getAudioScore(stream, preferredLanguages = [], prioritizeHindi = false)
                 score += Math.max(50, Math.floor(weight / 4));
             }
         } else {
-            // Match specific languages (e.g. hindi, tamil, telugu, english, japanese, etc.)
-            let regexPattern = `\\b${pref}\\b`;
-            if (pref === 'portuguese') {
-                regexPattern = `\\b(portuguese|pt\\-?br|pt)\\b`;
-            } else if (pref === 'japanese') {
-                regexPattern = `\\b(japanese|jap)\\b`;
-            } else if (pref === 'english') {
-                regexPattern = `\\b(english|eng|en)\\b`;
-            } else if (pref === 'vietnamese') {
-                regexPattern = `\\b(vietnamese|viet|vie|vn)\\b`;
-            } else if (pref === 'chinese') {
-                regexPattern = `\\b(chinese|mandarin|zh|chn)\\b`;
-            } else if (pref === 'indonesian') {
-                regexPattern = `\\b(indonesian|indo|id)\\b`;
-            }
-
-            const matched = langs.includes(pref) || new RegExp(regexPattern, 'i').test(text);
+            const aliasPattern = INTERNATIONAL_LANGUAGE_ALIASES[pref] || new RegExp(`\\b${pref}\\b`, 'i');
+            const matched = langs.includes(pref) || aliasPattern.test(text);
             if (matched) {
                 score += weight;
                 matchedSpecific = true;
@@ -559,9 +680,14 @@ async function testStream(stream, showSeeders = true, config = {}) {
         : cleanProviderName(originalName);
 
     const rawSnapshot = stream._rawStream || {
+        ...stream,
         name: stream.name,
         title: stream.title,
-        filename: stream.behaviorHints?.filename
+        filename: stream.behaviorHints?.filename,
+        provider: stream.provider || providerName,
+        originalProvider: stream.originalProvider || providerName,
+        _scraperName: stream._scraperName || providerName,
+        _scraperId: stream._scraperId
     };
     stream._rawStream = rawSnapshot;
     const initialMeta = stream._preparsedMeta || parseStreamMetadata(rawSnapshot);
@@ -648,8 +774,8 @@ async function testStream(stream, showSeeders = true, config = {}) {
         };
     }
 
-    // Handle external links or YouTube links
-    if (stream.externalUrl || stream.ytId) {
+    // Handle YouTube links or external links without playable stream.url
+    if (stream.ytId || (!stream.url && stream.externalUrl)) {
         if (!stream.url && stream.externalUrl) {
             stream.url = stream.externalUrl;
         }
@@ -658,11 +784,13 @@ async function testStream(stream, showSeeders = true, config = {}) {
             ...stream,
             url: stream.url,
             name: labels.name,
-            title: labels.title, description: labels.description,
+            title: labels.title,
+            description: labels.description,
             latency: 100,
             isDead: false,
             statusCategory: 'fast',
             originalProvider: providerName,
+            provider: stream.provider || providerName.toLowerCase().replace(/[^a-z0-9]/g, ''),
             _rawStream: rawSnapshot,
             _preparsedMeta: initialMeta
         };
@@ -811,27 +939,67 @@ async function testStream(stream, showSeeders = true, config = {}) {
         let latency = 0;
         let isDead = false;
 
-        const probeStartTime = Date.now();
-        try {
-            // 1. Primary probe: Direct HEAD request to stream.url
-            const res = await axios.head(stream.url, {
-                timeout: TIMEOUT_MS,
-                headers: probeHeaders,
-                httpAgent: dohHttpAgent,
-                httpsAgent: dohHttpsAgent,
-                validateStatus: () => true,
-                maxRedirects: 3
-            });
-            const elapsed = Date.now() - probeStartTime;
+        const hostname = urlObj.hostname;
+        const cachedDomain = domainLatencyCache.get(hostname);
+        if (cachedDomain && (Date.now() - cachedDomain.time < 180000)) {
+            latency = cachedDomain.latency;
+            isDead = cachedDomain.isDead;
+        } else {
+            const probeStartTime = Date.now();
+            try {
+                // 1. Primary probe: Direct HEAD request to stream.url
+                const res = await axios.head(stream.url, {
+                    timeout: TIMEOUT_MS,
+                    headers: probeHeaders,
+                    httpAgent: dohHttpAgent,
+                    httpsAgent: dohHttpsAgent,
+                    validateStatus: () => true,
+                    maxRedirects: 3
+                });
+                const elapsed = Date.now() - probeStartTime;
 
-            if (res.status === 404 || res.status === 410 || res.status >= 500) {
-                isDead = true;
-                latency = 99999;
-            } else if (res.status === 403) {
-                // If HEAD returns 403, verify with GET Range before assuming dead
+                if (res.status === 404 || res.status === 410 || res.status >= 500) {
+                    isDead = true;
+                    latency = 99999;
+                } else if (res.status === 403) {
+                    // If HEAD returns 403, verify with GET Range before assuming dead
+                    try {
+                        const rangeStart = Date.now();
+                        const rangeRes = await axios.get(stream.url, {
+                            timeout: TIMEOUT_MS,
+                            headers: { ...probeHeaders, 'Range': 'bytes=0-10' },
+                            httpAgent: dohHttpAgent,
+                            httpsAgent: dohHttpsAgent,
+                            validateStatus: () => true,
+                            maxRedirects: 3
+                        });
+                        const rangeElapsed = Date.now() - rangeStart;
+                        if (rangeRes.status === 404 || rangeRes.status === 410 || rangeRes.status >= 500) {
+                            isDead = true;
+                            latency = 99999;
+                        } else if (rangeRes.status === 403) {
+                            // Upstream requires browser headers/proxy - live stream, not dead
+                            isDead = false;
+                            latency = 120;
+                        } else {
+                            latency = Math.max(30, rangeElapsed);
+                        }
+                    } catch (rErr) {
+                        if (rErr.code === 'ECONNREFUSED' || rErr.code === 'ENOTFOUND' || rErr.code === 'ECONNABORTED' || rErr.code === 'ETIMEDOUT' || (rErr.message && rErr.message.includes('timeout'))) {
+                            isDead = true;
+                            latency = 99999;
+                        } else {
+                            latency = 150;
+                        }
+                    }
+                } else {
+                    latency = Math.max(30, elapsed);
+                }
+            } catch (headErr) {
+                // HEAD rejected or connection error -> fallback to GET Range probe
                 try {
-                    const rangeStart = Date.now();
-                    const rangeRes = await axios.get(stream.url, {
+                    const getStart = Date.now();
+                    const getRes = await axios.get(stream.url, {
                         timeout: TIMEOUT_MS,
                         headers: { ...probeHeaders, 'Range': 'bytes=0-10' },
                         httpAgent: dohHttpAgent,
@@ -839,59 +1007,28 @@ async function testStream(stream, showSeeders = true, config = {}) {
                         validateStatus: () => true,
                         maxRedirects: 3
                     });
-                    const rangeElapsed = Date.now() - rangeStart;
-                    if (rangeRes.status === 404 || rangeRes.status === 410 || rangeRes.status >= 500) {
-                        isDead = true;
-                        latency = 99999;
-                    } else if (rangeRes.status === 403) {
-                        // Forbidden even with Range probe -> needs special proxy or auth
-                        // Give it realistic slow penalty rather than bogus 2ms
-                        isDead = false;
-                        latency = 1200;
-                    } else {
-                        latency = Math.max(30, rangeElapsed);
-                    }
-                } catch (rErr) {
-                    if (rErr.code === 'ECONNREFUSED' || rErr.code === 'ENOTFOUND') {
-                        isDead = true;
-                        latency = 99999;
-                    } else {
-                        latency = 850;
-                    }
-                }
-            } else {
-                latency = Math.max(30, elapsed);
-            }
-        } catch (headErr) {
-            // HEAD rejected or connection error -> fallback to GET Range probe
-            try {
-                const getStart = Date.now();
-                const getRes = await axios.get(stream.url, {
-                    timeout: TIMEOUT_MS,
-                    headers: { ...probeHeaders, 'Range': 'bytes=0-10' },
-                    httpAgent: dohHttpAgent,
-                    httpsAgent: dohHttpsAgent,
-                    validateStatus: () => true,
-                    maxRedirects: 3
-                });
-                const getElapsed = Date.now() - getStart;
+                    const getElapsed = Date.now() - getStart;
 
-                if (getRes.status === 404 || getRes.status === 410 || getRes.status >= 500) {
-                    isDead = true;
-                    latency = 99999;
-                } else if (getRes.status === 403) {
-                    isDead = false;
-                    latency = 1200;
-                } else {
-                    latency = Math.max(30, getElapsed);
+                    if (getRes.status === 404 || getRes.status === 410 || getRes.status >= 500) {
+                        isDead = true;
+                        latency = 99999;
+                    } else if (getRes.status === 403) {
+                        isDead = false;
+                        latency = 120;
+                    } else {
+                        latency = Math.max(30, getElapsed);
+                    }
+                } catch (getErr) {
+                    if (getErr.code === 'ECONNREFUSED' || getErr.code === 'ENOTFOUND' || getErr.code === 'ECONNABORTED' || getErr.code === 'ETIMEDOUT' || (getErr.message && getErr.message.includes('timeout'))) {
+                        isDead = true;
+                        latency = 99999;
+                    } else {
+                        latency = 150;
+                    }
                 }
-            } catch (getErr) {
-                if (getErr.code === 'ECONNREFUSED' || getErr.code === 'ENOTFOUND') {
-                    isDead = true;
-                    latency = 99999;
-                } else {
-                    latency = 850;
-                }
+            }
+            if (hostname) {
+                domainLatencyCache.set(hostname, { latency, isDead, time: Date.now() });
             }
         }
 
@@ -926,14 +1063,14 @@ async function testStream(stream, showSeeders = true, config = {}) {
         };
 
     } catch (err) {
-        const labels = formatStreamLabels(stream, 1200, false, false, showSeeders, config);
+        const labels = formatStreamLabels(stream, 140, false, false, showSeeders, config);
         return {
             ...stream,
             name: labels.name,
             title: labels.title, description: labels.description,
-            latency: 1200,
+            latency: 140,
             isDead: false,
-            statusCategory: 'slow',
+            statusCategory: 'fast',
             originalProvider: providerName,
             _rawStream: rawSnapshot,
             _preparsedMeta: initialMeta
@@ -1124,18 +1261,26 @@ function buildNuvioSceneFilename(meta, target = {}) {
 async function sortAndTagStreams(streams, config = {}, providerAnalytics) {
     if (!streams || streams.length === 0) return [];
 
-    // Filter out streams that do not match the target media title / year / episode
+    // Filter out streams that do not match the target media title / year / episode / format
     let validStreams = streams;
     if (config && config.target && config.target.title) {
         const filtered = streams.filter(s => isStreamMatchingTarget(s, config.target));
         if (filtered.length > 0) {
             const rejectedCount = streams.length - filtered.length;
             if (rejectedCount > 0) {
-                console.log(`[MetaSorter] Purged ${rejectedCount} mismatched/wrong-title streams for "${config.target.title}"`);
+                console.log(`[MetaSorter] Purged ${rejectedCount} mismatched/wrong-title/anime streams for "${config.target.title}"`);
             }
             validStreams = filtered;
         } else {
-            console.log(`[MetaSorter] Target filter matched 0 streams for "${config.target.title}", keeping all ${streams.length} streams as fallback`);
+            // NEVER restore streams that suffered a fatal format or season/episode mismatch
+            const nonFatalFallback = streams.filter(s => !s._fatalMismatch);
+            if (nonFatalFallback.length > 0) {
+                console.log(`[MetaSorter] Target keyword filter matched 0 streams for "${config.target.title}", keeping ${nonFatalFallback.length} non-fatal streams as fallback`);
+                validStreams = nonFatalFallback;
+            } else {
+                console.log(`[MetaSorter] All ${streams.length} streams fatally mismatched format/season/episode for "${config.target.title}". Purging all to prevent wrong playback.`);
+                validStreams = [];
+            }
         }
     }
 
@@ -1259,16 +1404,27 @@ async function sortAndTagStreams(streams, config = {}, providerAnalytics) {
             return !rawDisabled.some(d => {
                 if (!d) return false;
                 const cleanD = d.replace(/[^a-z0-9]/g, '');
-                return textToCheck.includes(d) || (cleanD && (cleanText.includes(cleanD) || cleanD.includes(cleanText)));
+                return textToCheck.includes(d) || (cleanD && cleanText.includes(cleanD));
             });
         });
     }
 
-    if (config && config.hideDead) {
-        filteredStreams = filteredStreams.filter(s => s.statusCategory !== 'dead');
+    if (config && (config.hideDead || config.filterDead)) {
+        filteredStreams = filteredStreams.filter(s => {
+            const isDead = s.statusCategory === 'dead'
+                || s.isDead === true
+                || (typeof s.latency === 'number' && s.latency >= 90000)
+                || (typeof s.name === 'string' && /🔴\s*DEAD|\bDEAD\b/i.test(s.name));
+            return !isDead;
+        });
     }
     if (config && config.hideSlow) {
-        filteredStreams = filteredStreams.filter(s => s.statusCategory !== 'slow');
+        filteredStreams = filteredStreams.filter(s => {
+            const isSlow = s.statusCategory === 'slow'
+                || (typeof s.latency === 'number' && s.latency >= 800)
+                || (typeof s.name === 'string' && /🟡\s*SLOW|\bSLOW\b/i.test(s.name));
+            return !isSlow;
+        });
     }
     // Auto-Hide CAM, TeleSync, and Screener theater recordings
     if (config && (config.hideCam || config.blockCam)) {
@@ -1286,8 +1442,8 @@ async function sortAndTagStreams(streams, config = {}, providerAnalytics) {
         });
     }
 
-    // Safety fallback: if speed filters leave 0 streams, retain all tested streams (never restore blocked scrapers/P2P)
-    if (filteredStreams.length === 0 && testedStreams.length > 0 && !config?.hideP2P && !config?.blockP2P && rawDisabled.length === 0) {
+    // Safety fallback: if speed filters leave 0 streams, retain all tested streams (never restore blocked scrapers, P2P, or explicitly hidden dead/slow streams)
+    if (filteredStreams.length === 0 && testedStreams.length > 0 && !config?.hideDead && !config?.filterDead && !config?.hideSlow && !config?.hideP2P && !config?.blockP2P && rawDisabled.length === 0) {
         filteredStreams = testedStreams;
     }
 
@@ -1295,8 +1451,56 @@ async function sortAndTagStreams(streams, config = {}, providerAnalytics) {
     const categoryRank = { 'fast': 1, 'slow': 2, 'dead': 3 };
     const sortBy = (config && (config.sortBy || config.sortMode)) 
         || (config && config.prioritizeQuality ? 'quality' : 'speed');
+    
+    // Universal & International Language Auto-Resolution:
+    // 1. Explicit user preferred languages take absolute priority.
+    // 2. If user explicitly enabled prioritizeHindi, prioritize Hindi + Multi-Audio.
+    // 3. Otherwise, automatically adapt to the media's native original language
+    //    (e.g. Japanese for anime, French for French cinema, Spanish, Korean, German, Italian, etc.)
+    const ISO_TO_LANG_MAP = {
+        'en': 'english',
+        'fr': 'french',
+        'es': 'spanish',
+        'de': 'german',
+        'it': 'italian',
+        'ja': 'japanese',
+        'ko': 'korean',
+        'zh': 'chinese',
+        'hi': 'hindi',
+        'ta': 'tamil',
+        'te': 'telugu',
+        'ml': 'malayalam',
+        'kn': 'kannada',
+        'bn': 'bengali',
+        'mr': 'marathi',
+        'pa': 'punjabi',
+        'gu': 'gujarati',
+        'pt': 'portuguese',
+        'ru': 'russian',
+        'ar': 'arabic',
+        'tr': 'turkish',
+        'nl': 'dutch',
+        'pl': 'polish',
+        'id': 'indonesian',
+        'vi': 'vietnamese',
+        'th': 'thai'
+    };
+
     const prefLanguages = config ? (config.preferredLanguages || []) : [];
-    const hasAudioPref = (Array.isArray(prefLanguages) && prefLanguages.length > 0) || (config && config.prioritizeHindi);
+    const targetMeta = config && config.target ? config.target : {};
+    const origLangCode = String(targetMeta.originalLanguage || '').toLowerCase();
+    const nativeLang = ISO_TO_LANG_MAP[origLangCode] || null;
+
+    let effectiveLanguages = [];
+    if (Array.isArray(prefLanguages) && prefLanguages.length > 0) {
+        effectiveLanguages = prefLanguages;
+    } else if (config && config.prioritizeHindi) {
+        effectiveLanguages = ['hindi', 'dual-audio', 'multi-audio'];
+    } else if (nativeLang) {
+        effectiveLanguages = [nativeLang, 'dual-audio', 'multi-audio'];
+    }
+
+    const hasAudioPref = effectiveLanguages.length > 0;
 
     filteredStreams.sort((a, b) => {
         // Safe numeric latency
@@ -1346,8 +1550,8 @@ async function sortAndTagStreams(streams, config = {}, providerAnalytics) {
 
             // 2. Multi-Language / Preferred Audio within the same resolution tier
             if (hasAudioPref) {
-                const audioA = getAudioScore(a, prefLanguages, config?.prioritizeHindi);
-                const audioB = getAudioScore(b, prefLanguages, config?.prioritizeHindi);
+                const audioA = getAudioScore(a, effectiveLanguages);
+                const audioB = getAudioScore(b, effectiveLanguages);
                 if (audioA !== audioB) {
                     return audioB - audioA;
                 }
@@ -1393,8 +1597,8 @@ async function sortAndTagStreams(streams, config = {}, providerAnalytics) {
 
             // 2. Preferred Audio Language
             if (hasAudioPref) {
-                const audioA = getAudioScore(a, prefLanguages, config?.prioritizeHindi);
-                const audioB = getAudioScore(b, prefLanguages, config?.prioritizeHindi);
+                const audioA = getAudioScore(a, prefLanguages, prioritizeHindiEffective);
+                const audioB = getAudioScore(b, prefLanguages, prioritizeHindiEffective);
                 if (audioA !== audioB) {
                     return audioB - audioA;
                 }
@@ -1433,8 +1637,8 @@ async function sortAndTagStreams(streams, config = {}, providerAnalytics) {
 
             // 1. Preferred Audio Language
             if (hasAudioPref) {
-                const audioA = getAudioScore(a, prefLanguages, config?.prioritizeHindi);
-                const audioB = getAudioScore(b, prefLanguages, config?.prioritizeHindi);
+                const audioA = getAudioScore(a, effectiveLanguages);
+                const audioB = getAudioScore(b, effectiveLanguages);
                 if (audioA !== audioB) {
                     return audioB - audioA;
                 }
@@ -1489,42 +1693,25 @@ async function sortAndTagStreams(streams, config = {}, providerAnalytics) {
 
             // 2. Multi-Language / Preferred Audio (if configured)
             if (hasAudioPref) {
-                const audioA = getAudioScore(a, prefLanguages, config?.prioritizeHindi);
-                const audioB = getAudioScore(b, prefLanguages, config?.prioritizeHindi);
+                const audioA = getAudioScore(a, effectiveLanguages);
+                const audioB = getAudioScore(b, effectiveLanguages);
                 if (audioA !== audioB) {
                     return audioB - audioA;
                 }
             }
 
-            // 3. Resolution Tier grouping:
-            // 4K & 1080p FHD = tier 3, 720p HD = tier 2, 480p/SD = tier 1
-            // Guarantees high quality streams are at the top and never overtaken by 480p streams
-            const getSpeedResTier = (s) => {
-                const r = getResolutionTier(s);
-                if (r >= 3) return 3; // 4K & 1080p
-                if (r === 2) return 2; // 720p
-                return 1;              // 480p / SD / Unknown
-            };
-
-            const sTierA = getSpeedResTier(a);
-            const sTierB = getSpeedResTier(b);
-            if (sTierA !== sTierB) {
-                return sTierB - sTierA;
-            }
-
-            // 4. Exact latency (lowest ms first) — STRICT PRIMARY sort within each resolution tier!
+            // 3. Exact latency (lowest ms first) — STRICT PRIMARY sort in speed mode
             if (latA !== latB) {
                 return latA - latB;
             }
 
-            // 5. Higher resolution (e.g. 4K vs 1080p if both have exact same latency)
+            // 4. Higher resolution & quality as tie-breaker
             const resA = getResolutionTier(a);
             const resB = getResolutionTier(b);
             if (resA !== resB) {
                 return resB - resA;
             }
 
-            // 6. Quality score as tie-breaker
             const scoreA = getQualityScore(a);
             const scoreB = getQualityScore(b);
             if (scoreA !== scoreB) {
@@ -1586,11 +1773,24 @@ async function sortAndTagStreams(streams, config = {}, providerAnalytics) {
             };
         }
 
-        // If stream has custom headers (Referer, Origin, etc.) OR multiple fallback mirrors:
-        // ExoPlayer & mobile players drop custom headers when hitting remote CDNs directly, resulting in 403 Forbidden buffering loops.
-        // Route through /proxy/stream to forward headers, rewrite HLS playlists, and enable seamless fallback failover.
-        if (config.addonHost && stremioStream.url && stremioStream.url.startsWith('http') && (hasCustomHeaders || hasFallbacks)) {
-            const protocol = config.addonProtocol || 'https';
+        // Auto-route through /proxy/stream when:
+        // 1. S3/R2 presigned URL (to prevent ExoPlayer/VLC 403 on HEAD probes)
+        // 2. Custom headers are required (Referer/Origin)
+        // 3. Fallback mirrors exist (for self-healing)
+        // 4. User config enableStreamProxy is true
+        const isS3Presigned = Boolean(
+            stremioStream.url && (
+                stremioStream.url.includes('X-Amz-Signature') || 
+                stremioStream.url.includes('X-Amz-Algorithm') || 
+                stremioStream.url.includes('cloudflarestorage.com') || 
+                stremioStream.url.includes('r2.dev') ||
+                stremioStream.url.includes('hubcloud.') ||
+                stremioStream.url.includes('/drive/')
+            )
+        );
+
+        if (config.addonHost && stremioStream.url && stremioStream.url.startsWith('http') && (isS3Presigned || hasCustomHeaders || hasFallbacks || config.enableStreamProxy === true)) {
+            const protocol = config.addonProtocol || 'http';
             const params = new URLSearchParams();
             params.set('url', stremioStream.url);
             if (hasFallbacks) {
@@ -1616,7 +1816,10 @@ async function sortAndTagStreams(streams, config = {}, providerAnalytics) {
             mediaType: mediaType,
             mediaId: target.id || null,
             mediaOnlyId: target.id ? target.id.split(':')[0] : null,
-            title: target.title || meta.cleanTitle || 'Video',
+            title: stremioStream.title || target.title || meta.cleanTitle || 'Video',
+            formattedTitle: stremioStream.title,
+            name: stremioStream.name,
+            description: stremioStream.description || stremioStream.title,
             season: seasonNum,
             episode: episodeNum,
             isCached: Boolean(s.isDebridCached),
@@ -1653,10 +1856,40 @@ async function sortAndTagStreams(streams, config = {}, providerAnalytics) {
             }
         };
 
-        // Clean up internal properties so they never leak into the response
+        stremioStream.behaviorHints = {
+            ...(stremioStream.behaviorHints || {}),
+            filename: synthFilename,
+            videoSize: meta.sizeBytes || undefined,
+            bingeGroup: `cholebhature|${meta.resolution || '1080p'}|${meta.quality || 'WEB-DL'}`
+        };
+
+        if (hasCustomHeaders) {
+            stremioStream.behaviorHints.proxyHeaders = {
+                ...(stremioStream.behaviorHints?.proxyHeaders || {}),
+                request: customHeaders
+            };
+        }
+
+        if (!stremioStream.quality && meta.resolution) {
+            stremioStream.quality = meta.resolution;
+        }
+        if (!stremioStream.size && (meta.size || meta.sizeBytes)) {
+            stremioStream.size = meta.size || meta.sizeBytes;
+        }
+        if (!stremioStream.provider) {
+            stremioStream.provider = (Array.isArray(stremioStream.providers) && stremioStream.providers.length > 0)
+                ? stremioStream.providers[0]
+                : (stremioStream.originalProvider || cleanProviderName(stremioStream.name || 'Stream'));
+        }
+
+        // Clean up internal temporary engine properties so they never leak into the response
         delete stremioStream._rawStream;
         delete stremioStream._preparsedMeta;
         delete stremioStream._rawFilename;
+        delete stremioStream._testedResult;
+        if (stremioStream.url) {
+            delete stremioStream.externalUrl;
+        }
 
         return stremioStream;
     });

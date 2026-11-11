@@ -419,20 +419,55 @@ app.use((req, res, next) => {
 });
 
 // Serve static assets
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 const cbProviderDir = path.join(__dirname, '..', 'cb-providers');
 if (fs.existsSync(cbProviderDir)) {
     app.use('/my-repo', express.static(cbProviderDir));
 }
 
-app.get(['/', '/configure', '/index.html'], (req, res) => {
+function isBrowserHtmlRequest(req) {
+    const userAgent = (req.headers['user-agent'] || '').toLowerCase();
+    const accept = (req.headers['accept'] || '').toLowerCase();
+    if (userAgent.includes('okhttp') || userAgent.includes('nuvio') || userAgent.includes('stremio') || userAgent.includes('exoplayer')) {
+        return false;
+    }
+    if (accept.includes('application/json')) {
+        return false;
+    }
+    return accept.includes('text/html');
+}
+
+app.get(['/', '/configure', '/index.html'], async (req, res) => {
+    if (req.path === '/' && !isBrowserHtmlRequest(req)) {
+        const activeConfig = {};
+        activeConfig.addonHost = req.headers.host;
+        const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+        activeConfig.addonProtocol = protocol.split(',')[0].trim();
+        const defaultAddon = createAddon(activeConfig);
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
+        return res.json(defaultAddon.manifest);
+    }
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // Serve configure page on configId routes
-app.get(['/c/:configId', '/c/:configId/configure', '/configure/:configId'], (req, res) => {
+app.get(['/c/:configId', '/c/:configId/configure', '/configure/:configId'], async (req, res) => {
+    if (req.path.startsWith('/c/') && !req.path.endsWith('/configure') && !isBrowserHtmlRequest(req)) {
+        let config = await resolveConfig(req.params.configId);
+        if (!config) config = {};
+        config = JSON.parse(JSON.stringify(config));
+        config.configId = req.params.configId;
+        config.addonHost = req.headers.host;
+        const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+        config.addonProtocol = protocol.split(',')[0].trim();
+        const configuredAddon = createAddon(config);
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
+        return res.json(configuredAddon.manifest);
+    }
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -2577,9 +2612,9 @@ function createAddon(config) {
 
     const builder = new addonBuilder({
         id: addonId,
-        version: '4.5.0',
+        version: '4.5.4',
         name: addonName,
-        description: 'High-Performance Stream Meta-Sorter & Discovery Hub for Nuvio & Stremio. Scrapes, verifies, filters dead links, organizes streams by speed/quality/audio, and provides curated Live TV, Indian Cinema, Trending & Anime feeds.',
+        description: 'High-Performance Global Stream Meta-Sorter & Priority Engine for Stremio & Nuvio. Scrapes, verifies, filters dead links, organizes streams by speed, resolution (4K HDR/DV), and language (Multi-Audio, European Dubs, Anime & Worldwide Cinema), supporting Real-Debrid, AllDebrid, and DoH ISP bypass.',
         logo: addonLogo,
         catalogs: enabledCatalogs,
         resources: resources,
@@ -2620,14 +2655,18 @@ function createAddon(config) {
         
         // Helper to generate the force refresh stream
         const getForceRefreshStream = () => {
-            if (!config.addonHost) return null;
+            if (config.hideForceRefresh === true || config.showForceRefresh === false) return null;
+            const host = config.addonHost || (typeof process !== 'undefined' && process.env.VERCEL_URL ? process.env.VERCEL_URL : 'cholebhature.vercel.app');
+            if (!host) return null;
+            const protocol = config.addonProtocol || (host.includes('localhost') || host.includes('127.0.0.1') ? 'http' : 'https');
             const baseUrl = config.configId
-                ? `${config.addonProtocol || 'http'}://${config.addonHost}/c/${config.configId}`
-                : `${config.addonProtocol || 'http'}://${config.addonHost}/${encodeURIComponent(JSON.stringify(config))}`;
+                ? `${protocol}://${host}/c/${config.configId}`
+                : `${protocol}://${host}`;
             const targetUrl = `${baseUrl}/clear-cache/${type}/${encodeURIComponent(id)}`;
             return {
                 name: '🔄 FORCE REFRESH',
                 title: '⚡ Click to clear cache & fetch fresh streams on reload!',
+                description: 'Clear cache and fetch real-time fresh streams from all providers.',
                 externalUrl: targetUrl
             };
         };
@@ -2640,11 +2679,24 @@ function createAddon(config) {
             let season = null;
             let episode = null;
 
-            if (type === 'series' || type === 'tv' || type === 'anime' || (id && id.includes(':') && !id.startsWith('iptv:') && !id.startsWith('kitsu:'))) {
+            if (id && id.startsWith('tmdb:')) {
+                // Support Nuvio TMDB prefix: tmdb:872585 (movie) or tmdb:1396:1:1 (series)
+                const parts = id.split(':');
+                imdbId = parts[0] + ':' + parts[1];
+                season = parts[2] ? parseInt(parts[2], 10) : null;
+                episode = parts[3] ? parseInt(parts[3], 10) : null;
+            } else if (id && id.startsWith('kitsu:')) {
+                const parts = id.split(':');
+                imdbId = parts[0] + ':' + parts[1];
+                episode = parts[2] ? parseInt(parts[2], 10) : null;
+                season = 1;
+            } else if (id && id.startsWith('iptv:')) {
+                imdbId = id;
+            } else if (type === 'series' || type === 'tv' || type === 'anime' || (id && id.includes(':'))) {
                 const parts = id.split(':');
                 imdbId = parts[0];
-                season = parts[1];
-                episode = parts[2];
+                season = parts[1] ? parseInt(parts[1], 10) : null;
+                episode = parts[2] ? parseInt(parts[2], 10) : null;
             }
 
             const mediaMeta = await getMediaMetadata(imdbId, type);
@@ -2665,13 +2717,22 @@ function createAddon(config) {
                 manifestUrls = [config.url];
             }
             
+            const localManifestExists = fs.existsSync(path.join(__dirname, '..', 'cb-providers', 'manifest.json'));
             if (manifestUrls.length === 0) {
-                manifestUrls = (globalServerSettings.installedRepos && globalServerSettings.installedRepos.length > 0) ? [...globalServerSettings.installedRepos] : ['https://raw.githubusercontent.com/SA7ANI/cb-providers/main/manifest.json'];
-            }
-            if (globalServerSettings.localRepo && globalServerSettings.localRepo.length > 0) {
-                if (!manifestUrls.includes('local')) {
-                    manifestUrls.unshift('local'); // Prioritize direct local repository!
+                if (config.enableCommunityRepos === true && globalServerSettings.installedRepos && globalServerSettings.installedRepos.length > 0) {
+                    manifestUrls = [...globalServerSettings.installedRepos];
+                } else {
+                    manifestUrls = [localManifestExists ? 'local' : 'https://raw.githubusercontent.com/SA7ANI/cb-providers/main/manifest.json'];
                 }
+            }
+            // Always ensure the core CB-Providers fleet is included unless explicitly blocked
+            if (localManifestExists) {
+                manifestUrls = manifestUrls.filter(u => !u.includes('SA7ANI/cb-providers'));
+                if (!manifestUrls.includes('local')) {
+                    manifestUrls.unshift('local');
+                }
+            } else if (!manifestUrls.some(u => u.includes('cb-providers'))) {
+                manifestUrls.unshift('https://raw.githubusercontent.com/SA7ANI/cb-providers/main/manifest.json');
             }
 
             const providerBatches = await Promise.all(
@@ -2735,21 +2796,57 @@ function createAddon(config) {
 
             let allStreams = [];
             const scrapeStartTime = Date.now();
+
+            // Filter providers by supportedTypes to avoid running TV scrapers on movies or vice-versa
+            let nuvioType = type;
+            if (type === 'series' || type === 'tv') nuvioType = 'tv';
+            else if (type === 'movie') nuvioType = 'movie';
+            else if (type === 'anime') nuvioType = (season && episode) ? 'tv' : 'movie';
+
+            // Distinguish Anime/Cartoons vs Standard Live-Action to avoid stalling on irrelevant scrapers
+            const isAnimeOrCartoons = Boolean(
+                type === 'anime' ||
+                mediaMeta?.isAnime ||
+                mediaMeta?.isAnimation ||
+                mediaMeta?.originalLanguage === 'ja' ||
+                (String(id || '').startsWith('kitsu:'))
+            );
+
+            const ANIME_ONLY_SCRAPERS = new Set([
+                'kurage', 'anizone', 'animeworld', 'anikage', 'animesalt', 
+                'anizen', 'reanime', 'toonstream', 'puretoons', 'topcartoons'
+            ]);
+
+            allProviders = allProviders.filter(p => {
+                const pId = String(p.id || '').toLowerCase();
+                const pName = String(p.name || '').toLowerCase();
+                const isAnimeScraper = ANIME_ONLY_SCRAPERS.has(pId) || pId.includes('anime') || pName.includes('anime') || pName.includes('cartoon') || pName.includes('toons');
+                
+                // If it is regular live-action cinema (e.g. Oppenheimer, Breaking Bad), don't query pure anime scrapers
+                if (!isAnimeOrCartoons && isAnimeScraper) {
+                    return false;
+                }
+
+                if (!p.supportedTypes || !Array.isArray(p.supportedTypes) || p.supportedTypes.length === 0) return true;
+                const types = p.supportedTypes.map(t => String(t).toLowerCase());
+                return types.includes(nuvioType) || types.includes(type);
+            });
+
             // High-speed parallel scraper execution timeout to ensure streams return within client limits
             // Universal Server-Wide Admin Enforcement: Admin switch strictly dictates Eco Mode for all users
             const isClientEco = config.renderEcoMode !== undefined ? config.renderEcoMode : config.vercelEcoMode;
             const isEcoMode = globalServerSettings.globalEcoMode !== undefined 
                 ? Boolean(globalServerSettings.globalEcoMode)
-                : (globalServerSettings.allowClientEcoOverride ? Boolean(isClientEco === true) : false); // Default OFF — let scrapers run fully
-            // Vercel maxDuration is set to 60s in vercel.json. Give scrapers as much time as possible.
-            // We leave ~8s buffer for speed-testing after scraping completes.
+                : (globalServerSettings.allowClientEcoOverride ? Boolean(isClientEco === true) : false);
             const isVercel = typeof process !== 'undefined' && Boolean(process.env.VERCEL);
+            
+            // Robust scraper deadlines to collect all available links from enabled providers
             const PROVIDER_TIMEOUT_MS = isVercel 
-                ? (isEcoMode ? 4000 : 5500)   // 5.5s allows multi-step scrapers (MoviesDrive, 4KHDHub) to finish
-                : (isEcoMode ? 4500 : 5800); // 5.8s on desktop/server
+                ? (isEcoMode ? 4500 : 7000)
+                : (isEcoMode ? 5500 : 8500); 
             const SCRAPE_DEADLINE_MS = isVercel 
-                ? (isEcoMode ? 4500 : 6000) 
-                : (isEcoMode ? 5000 : 6200);
+                ? (isEcoMode ? 5000 : 7500) 
+                : (isEcoMode ? 6000 : 9000);
 
             const tgScrapePromise = (async () => {
                 if (Boolean(config.enableTelegram) && (!config.disabled || (!config.disabled.includes('Telegram') && !config.disabled.includes('Telegram (PencariMovie)')))) {
@@ -2780,7 +2877,7 @@ function createAddon(config) {
             const CONCURRENCY_LIMIT = isVercel ? 60 : 250; // High concurrency for desktop/server to process all in a single batch
             const providerTasks = allProviders.map((provider) => async () => {
                 try {
-                    if (config.enableQuarantine !== false) {
+                    if (config.enableQuarantine === true) {
                         const qRecord = quarantineRegistry.get(provider.name);
                         if (qRecord && qRecord.quarantineUntil > Date.now()) {
                             console.log(`[Quarantine] Skipping provider ${provider.name} (Quarantined)`);
@@ -2829,7 +2926,7 @@ function createAddon(config) {
                         
                     if (!isNetworkError) {
                         // Only quarantine for actual script/parsing errors, not network issues which are common in parallel scraping
-                        if (config.enableQuarantine !== false) {
+                        if (config.enableQuarantine === true) {
                             const qRecord = quarantineRegistry.get(provider.name) || { fails: 0 };
                             qRecord.fails += 1;
                             if (qRecord.fails >= 2) {
@@ -2858,21 +2955,8 @@ function createAddon(config) {
 
             const scrapeTimeoutPromise = new Promise(resolve => setTimeout(resolve, SCRAPE_DEADLINE_MS));
             
-            // Fast early exit: return snappy response to Android TV once sufficient streams arrive
-            const earlyCheckPromise = new Promise(resolve => {
-                const interval = setInterval(() => {
-                    if ((allStreams.length >= 25 && (Date.now() - scrapeStartTime) >= 2500) ||
-                        (allStreams.length >= 15 && (Date.now() - scrapeStartTime) >= 3800)) {
-                        clearInterval(interval);
-                        resolve();
-                    }
-                }, 150);
-                setTimeout(() => clearInterval(interval), SCRAPE_DEADLINE_MS);
-            });
-
             await Promise.race([
                 Promise.all([tgScrapePromise, ...results]),
-                earlyCheckPromise,
                 scrapeTimeoutPromise
             ]);
             const scrapeDurationMs = Date.now() - scrapeStartTime;
@@ -2883,11 +2967,21 @@ function createAddon(config) {
             const currentYear = new Date().getFullYear();
             const isUnreleased = Boolean(type === 'movie' && targetYear && targetYear > currentYear);
 
+            // Balanced stream testing duration to accurately test all collected links
+            const maxTestingDuration = isVercel
+                ? Math.min(2200, Math.max(800, 9500 - scrapeDurationMs))
+                : Math.min(2800, Math.max(1000, 11000 - scrapeDurationMs));
+
             const sortedAndTaggedStreams = await sortAndTagStreams(allStreams, {
-                maxTestDuration: Math.min(1000, Math.max(500, 7200 - scrapeDurationMs)), // Fast speed testing: max 1.0s probe duration
+                maxTestDuration: maxTestingDuration,
                 target: {
                     title: mediaMeta?.title || '',
                     originalTitle: mediaMeta?.originalTitle || '',
+                    originalLanguage: mediaMeta?.originalLanguage || '',
+                    originCountry: mediaMeta?.originCountry || '',
+                    isIndian: mediaMeta?.isIndian || false,
+                    isAnime: Boolean(mediaMeta?.isAnime),
+                    isAnimation: Boolean(mediaMeta?.isAnimation),
                     year: mediaMeta?.year || null,
                     isUnreleased: isUnreleased,
                     type: type,
@@ -2932,14 +3026,14 @@ function createAddon(config) {
                 telemetryMetrics.servedBandwidthBytes += Buffer.byteLength(JSON.stringify(sortedAndTaggedStreams), 'utf8');
             } catch (e) {}
 
-            // Save to in-memory cache
-            streamCache.set(cacheKey, { timestamp: Date.now(), streams: sortedAndTaggedStreams });
-
-            // Persist to Upstash KV (Redis) with 30 minutes TTL (1800 seconds)
-            if (isKVEnabledGlobal && Array.isArray(sortedAndTaggedStreams) && sortedAndTaggedStreams.length > 0) {
-                kv.set(kvCacheKey, { timestamp: Date.now(), streams: sortedAndTaggedStreams }, { ex: 1800 })
-                    .then(() => console.log(`[KV] Cached ${sortedAndTaggedStreams.length} streams in Upstash Redis for ${type} ${id} (30m TTL)`))
-                    .catch(err => console.warn('[KV Stream Cache Save Warning]', err.message));
+            // Save to in-memory cache ONLY if valid streams found
+            if (Array.isArray(sortedAndTaggedStreams) && sortedAndTaggedStreams.length > 0) {
+                streamCache.set(cacheKey, { timestamp: Date.now(), streams: sortedAndTaggedStreams });
+                if (isKVEnabledGlobal) {
+                    kv.set(kvCacheKey, { timestamp: Date.now(), streams: sortedAndTaggedStreams }, { ex: 1800 })
+                        .then(() => console.log(`[KV] Cached ${sortedAndTaggedStreams.length} streams in Upstash Redis for ${type} ${id} (30m TTL)`))
+                        .catch(err => console.warn('[KV Stream Cache Save Warning]', err.message));
+                }
             }
 
             return sortedAndTaggedStreams;
@@ -2992,7 +3086,7 @@ function createAddon(config) {
             return list;
         };
 
-        if (cached && Date.now() - cached.timestamp < STALE_TTL_MS) {
+        if (cached && Array.isArray(cached.streams) && cached.streams.length > 0 && Date.now() - cached.timestamp < STALE_TTL_MS) {
             console.log(`[Stremio] Serving cached results for ${type} ${id}`);
             
             telemetryMetrics.cacheHits++;
@@ -3007,18 +3101,18 @@ function createAddon(config) {
                 fetchAndCacheStreams().catch(e => console.error('[Background Fetch Error]', e));
             }
             
-            const frStream = getForceRefreshStream();
             const filteredCached = filterRuntimeStreams(cached.streams);
-            return { streams: (frStream && filteredCached.length > 0) ? [frStream, ...filteredCached] : filteredCached };
+            const frStream = getForceRefreshStream();
+            return { streams: frStream ? [frStream, ...filteredCached] : filteredCached };
         }
 
         // Deduplicate in-flight requests for the exact same stream
         if (inFlightStreamFetches.has(cacheKey)) {
             console.log(`[Stremio] Awaiting in-flight fetch for ${type} ${id}`);
             const inFlightResult = await inFlightStreamFetches.get(cacheKey);
-            const frStream = getForceRefreshStream();
             const filteredInFlight = filterRuntimeStreams(inFlightResult);
-            return { streams: (frStream && filteredInFlight.length > 0) ? [frStream, ...filteredInFlight] : filteredInFlight };
+            const frStream = getForceRefreshStream();
+            return { streams: frStream ? [frStream, ...filteredInFlight] : filteredInFlight };
         }
 
         const fetchPromise = fetchAndCacheStreams();
@@ -3026,7 +3120,7 @@ function createAddon(config) {
         try {
             const sortedAndTaggedStreams = await fetchPromise;
             const frStream = getForceRefreshStream();
-            return { streams: (frStream && sortedAndTaggedStreams.length > 0) ? [frStream, ...sortedAndTaggedStreams] : sortedAndTaggedStreams };
+            return { streams: frStream ? [frStream, ...sortedAndTaggedStreams] : sortedAndTaggedStreams };
         } catch (streamErr) {
             console.error(`[Stremio Stream Handler Error] for ${type} ${id}:`, streamErr.stack || streamErr.message);
             return { streams: [] };
@@ -3596,6 +3690,9 @@ app.use((req, res, next) => {
             }
 
             const activeConfig = {};
+            activeConfig.addonHost = req.headers.host;
+            const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+            activeConfig.addonProtocol = protocol.split(',')[0].trim();
             const defaultAddon = createAddon(activeConfig);
             const router = getRouter(defaultAddon);
             return router(req, res, next);
@@ -3611,7 +3708,7 @@ if (!process.env.VERCEL) {
     const server = app.listen(PORT, '0.0.0.0', () => {
         console.log(`
 ========================================================================
-  🌶️  CHOLE BHATURE • Meta-Sorter & Priority Engine v4.5.0
+  🌶️  CHOLE BHATURE • Meta-Sorter & Priority Engine v4.5.4
   ⚡  Created by SA7ANI | https://github.com/SA7ANI/chole-bhature
   🛡️  Licensed under GNU AGPL-3.0 • Attribution Required
 ========================================================================
